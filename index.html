@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Claimifi.biz — Historical Fact-Checker powered by Grok</title>
+  <meta name="description" content="Claimifi.biz fact-checks historical claims from YouTube videos using trusted academic, archival, and fact-checking sources. Powered by Grok.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary: #0b0f19;
+      --bg-secondary: #111827;
+      --bg-tertiary: #1a2234;
+      --bg-card: #151c2c;
+      --border: #2a3548;
+      --text-primary: #f3f4f6;
+      --text-secondary: #9ca3af;
+      --text-muted: #6b7280;
+      --accent: #38bdf8;
+      --accent-dim: rgba(56, 189, 248, 0.15);
+      --success: #34d399;
+      --warning: #fbbf24;
+      --danger: #f87171;
+      --shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100vh;
+      line-height: 1.6;
+    }
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background-image:
+        linear-gradient(rgba(56, 189, 248, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(56, 189, 248, 0.03) 1px, transparent 1px);
+      background-size: 60px 60px;
+      pointer-events: none; z-index: 0;
+    }
+    .container {
+      position: relative; z-index: 1;
+      max-width: 920px; margin: 0 auto; padding: 0 20px 80px;
+    }
+    header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 24px 0; border-bottom: 1px solid var(--border); margin-bottom: 48px;
+    }
+    .logo { display: flex; align-items: center; gap: 12px; text-decoration: none; color: inherit; }
+    .logo-icon {
+      width: 40px; height: 40px;
+      background: linear-gradient(135deg, #0ea5e9, #38bdf8);
+      border-radius: 10px; display: flex; align-items: center; justify-content: center;
+      font-size: 20px; box-shadow: 0 0 20px rgba(56, 189, 248, 0.3);
+    }
+    .logo-text { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 1.35rem; letter-spacing: -0.02em; }
+    .logo-text span { color: var(--accent); }
+    .powered { font-size: 0.8rem; color: var(--text-muted); }
+    .powered strong { color: var(--text-secondary); font-weight: 600; }
+    .hero { text-align: center; margin-bottom: 40px; }
+    .hero h1 {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: clamp(1.8rem, 5vw, 2.6rem); font-weight: 700; letter-spacing: -0.03em; margin-bottom: 12px;
+      background: linear-gradient(to right, #f3f4f6, #94a3b8);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+    }
+    .hero p { color: var(--text-secondary); font-size: 1.1rem; max-width: 560px; margin: 0 auto 8px; }
+    .badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: var(--accent-dim); color: var(--accent);
+      font-size: 0.75rem; font-weight: 600; padding: 4px 12px; border-radius: 999px; margin-top: 16px;
+    }
+    .search-card {
+      background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px;
+      padding: 28px; box-shadow: var(--shadow); margin-bottom: 32px;
+    }
+    .search-label { font-size: 0.9rem; font-weight: 500; color: var(--text-secondary); margin-bottom: 12px; display: block; }
+    .search-row { display: flex; gap: 12px; }
+    .search-input {
+      flex: 1; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 10px;
+      padding: 14px 18px; font-size: 1rem; color: var(--text-primary); font-family: inherit; outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .search-input::placeholder { color: var(--text-muted); }
+    .search-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
+    .search-btn {
+      background: linear-gradient(135deg, #0ea5e9, #38bdf8); color: #0b0f19; border: none; border-radius: 10px;
+      padding: 14px 28px; font-size: 1rem; font-weight: 600; font-family: inherit; cursor: pointer;
+      display: flex; align-items: center; gap: 8px; white-space: nowrap;
+      transition: transform 0.15s, box-shadow 0.15s, opacity 0.15s;
+    }
+    .search-btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(56, 189, 248, 0.35); }
+    .search-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .search-hint { margin-top: 12px; font-size: 0.8rem; color: var(--text-muted); }
+    .results { display: none; }
+    .results.visible { display: block; animation: fadeIn 0.4s ease; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+    .result-header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+    .result-header h2 { font-family: 'Space Grotesk', sans-serif; font-size: 1.25rem; font-weight: 600; }
+    .status-pill {
+      font-size: 0.75rem; font-weight: 600; padding: 3px 10px; border-radius: 999px;
+      text-transform: uppercase; letter-spacing: 0.04em;
+    }
+    .status-pill.analyzing { background: rgba(251, 191, 36, 0.15); color: var(--warning); }
+    .status-pill.complete { background: rgba(52, 211, 153, 0.15); color: var(--success); }
+    .status-pill.demo { background: rgba(56, 189, 248, 0.15); color: var(--accent); }
+    .status-pill.error { background: rgba(248, 113, 113, 0.15); color: var(--danger); }
+    .analysis-card {
+      background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px;
+      overflow: hidden; margin-bottom: 20px;
+    }
+    .analysis-section { padding: 22px 24px; border-bottom: 1px solid var(--border); }
+    .analysis-section:last-child { border-bottom: none; }
+    .section-title {
+      font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em;
+      color: var(--text-muted); margin-bottom: 10px;
+    }
+    .claim-item {
+      background: var(--bg-secondary); border-radius: 10px; padding: 14px 16px; margin-bottom: 10px;
+      border-left: 3px solid var(--accent);
+    }
+    .claim-item:last-child { margin-bottom: 0; }
+    .claim-text { font-size: 0.95rem; margin-bottom: 6px; }
+    .verdict {
+      display: inline-flex; font-size: 0.8rem; font-weight: 600; padding: 2px 10px; border-radius: 6px;
+    }
+    .verdict.supported { background: rgba(52, 211, 153, 0.15); color: var(--success); }
+    .verdict.mixed { background: rgba(251, 191, 36, 0.15); color: var(--warning); }
+    .verdict.unsupported { background: rgba(248, 113, 113, 0.15); color: var(--danger); }
+    .verdict.insufficient { background: rgba(156, 163, 175, 0.15); color: var(--text-secondary); }
+    .evidence { font-size: 0.9rem; color: var(--text-secondary); margin-top: 8px; }
+    .sources-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+    .source-tag {
+      background: var(--bg-secondary); border: 1px solid var(--border); color: var(--text-secondary);
+      font-size: 0.75rem; padding: 4px 10px; border-radius: 6px; text-decoration: none;
+    }
+    .source-tag:hover { border-color: var(--accent); color: var(--accent); }
+    .loading-state { text-align: center; padding: 48px 20px; color: var(--text-secondary); }
+    .spinner {
+      width: 40px; height: 40px; border: 3px solid var(--border); border-top-color: var(--accent);
+      border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 16px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-steps { font-size: 0.9rem; margin-top: 12px; }
+    .loading-steps span { display: block; opacity: 0.5; margin: 4px 0; transition: opacity 0.3s; }
+    .loading-steps span.active { opacity: 1; color: var(--accent); }
+    .sources-panel {
+      background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px;
+      padding: 24px; margin-top: 40px;
+    }
+    .sources-panel h3 { font-family: 'Space Grotesk', sans-serif; font-size: 1rem; font-weight: 600; margin-bottom: 8px; }
+    .sources-panel p { font-size: 0.85rem; color: var(--text-muted); margin-bottom: 16px; }
+    .source-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; }
+    .source-item {
+      font-size: 0.78rem; color: var(--text-secondary); background: var(--bg-secondary);
+      padding: 6px 10px; border-radius: 6px;
+    }
+    .notice {
+      background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.25);
+      border-radius: 12px; padding: 16px 20px; margin-bottom: 28px; font-size: 0.9rem; color: #7dd3fc;
+      display: flex; gap: 12px; align-items: flex-start;
+    }
+    .notice strong { color: #bae6fd; }
+    footer { text-align: center; padding: 40px 0 20px; color: var(--text-muted); font-size: 0.8rem; }
+    @media (max-width: 600px) {
+      .search-row { flex-direction: column; }
+      .search-btn { width: 100%; justify-content: center; }
+      header { flex-direction: column; gap: 12px; align-items: flex-start; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <a href="/" class="logo">
+        <div class="logo-icon">⚖️</div>
+        <div class="logo-text">Claimifi<span>.biz</span></div>
+      </a>
+      <div class="powered">Powered by <strong>Grok</strong> · xAI</div>
+    </header>
+
+    <section class="hero">
+      <h1>Historical Fact-Checker</h1>
+      <p>Paste a YouTube video link or title. Claimifi.biz extracts claims about global &amp; ancient history and verifies them against trusted academic, archival, and fact-checking sources.</p>
+      <div class="badge">🔍 Academic • Archival • Fact-checked sources only</div>
+    </section>
+
+    <div class="notice">
+      <span style="font-size:1.2rem;">ℹ️</span>
+      <div>
+        <strong>Claimifi.biz</strong><br>
+        Paste any YouTube history video link or title and press Analyze.<br>
+        When the backend is connected you get real Grok-powered fact-checking against trusted academic sources. Otherwise a high-quality demo analysis is shown.
+      </div>
+    </div>
+
+    <div style="margin-bottom:20px; font-size:0.85rem; color:var(--text-muted);">
+      <label for="apiBase">Backend API URL (leave empty for same-origin / demo): </label>
+      <input type="text" id="apiBase" value="" placeholder="http://localhost:8000"
+             style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;padding:6px 10px;color:var(--text-primary);width:240px;font-size:0.85rem;">
+    </div>
+
+    <div class="search-card">
+      <label class="search-label" for="videoInput">YouTube video URL or title</label>
+      <div class="search-row">
+        <input type="text" id="videoInput" class="search-input"
+               placeholder="https://www.youtube.com/watch?v=... or “The Fall of the Roman Empire”"
+               autocomplete="off">
+        <button class="search-btn" id="analyzeBtn" onclick="startAnalysis()">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          Analyze
+        </button>
+      </div>
+      <p class="search-hint">Works best with public YouTube videos that have captions. Focused on global &amp; ancient history.</p>
+    </div>
+
+    <div class="results" id="results">
+      <div class="result-header">
+        <h2>Analysis</h2>
+        <span class="status-pill analyzing" id="statusPill">Analyzing</span>
+      </div>
+      <div id="loadingState" class="loading-state">
+        <div class="spinner"></div>
+        <div id="loadingText">Processing…</div>
+        <div class="loading-steps" id="loadingSteps">
+          <span id="step1">Extracting claims…</span>
+          <span id="step2">Consulting trusted sources…</span>
+          <span id="step3">Building evidence-based verdicts…</span>
+        </div>
+      </div>
+      <div id="analysisContent" style="display:none;"></div>
+    </div>
+
+    <div class="sources-panel">
+      <h3>Trusted Sources Used</h3>
+      <p>All analyses are constrained to these academic societies, university presses, national archives, and established fact-checkers:</p>
+      <div class="source-grid" id="sourceGrid"></div>
+    </div>
+
+    <footer>
+      <p>Claimifi.biz is an educational tool. Always cross-check important historical claims with primary sources and peer-reviewed scholarship.</p>
+      <p style="margin-top:8px;">Built with ❤️ for curious minds · Powered by Grok (xAI)</p>
+    </footer>
+  </div>
+
+  <script>
+    const TRUSTED_SOURCES = [
+      "historians.org","oah.org","history.ac.uk","iamhist.net","jstor.org","muse.jhu.edu",
+      "archives.gov","docsteach.org","loc.gov","britishpathe.com","aparchive.com","americanarchive.org",
+      "iwm.org.uk","bfi.org.uk","dp.la","archive.org","academic.oup.com","cambridge.org",
+      "hup.harvard.edu","yalebooks.yale.edu","press.princeton.edu","press.uchicago.edu","ucpress.edu",
+      "cup.columbia.edu","taylorandfrancis.com","routledge.com","brill.com","onlinelibrary.wiley.com",
+      "iupress.org","factcheck.org","politifact.com","snopes.com"
+    ];
+
+    const grid = document.getElementById('sourceGrid');
+    TRUSTED_SOURCES.forEach(src => {
+      const el = document.createElement('div');
+      el.className = 'source-item';
+      el.textContent = src;
+      grid.appendChild(el);
+    });
+
+    function escapeHtml(text) {
+      if (!text) return '';
+      const d = document.createElement('div');
+      d.textContent = text;
+      return d.innerHTML;
+    }
+
+    function getDemoAnalysis(input) {
+      const isUrl = input.includes('youtube.com') || input.includes('youtu.be');
+      const title = isUrl ? 'YouTube Video (demo)' : '"' + input + '"';
+      return {
+        video_title: title,
+        video_id: isUrl ? 'demo' : null,
+        claims: [
+          {
+            claim: "The video presents a specific chronological sequence of events as settled fact.",
+            verdict: "Mixed",
+            explanation: "Many popular history videos compress complex timelines. Scholarly consensus from cambridge.org and historians.org often shows more nuance, overlapping causes, and regional variation than a single linear narrative.",
+            sources: ["cambridge.org", "historians.org", "jstor.org"]
+          },
+          {
+            claim: "Key figures are given clear motives that explain the outcome.",
+            verdict: "Supported",
+            explanation: "Primary documents and major academic presses (hup.harvard.edu, yalebooks.yale.edu, archives.gov) frequently document the stated motives of major historical actors, although historians debate how decisive those motives were.",
+            sources: ["archives.gov", "hup.harvard.edu", "yalebooks.yale.edu"]
+          },
+          {
+            claim: "The video asserts a precise casualty figure or population impact.",
+            verdict: "Insufficient Evidence",
+            explanation: "Exact numbers for ancient and early-modern events are rarely recoverable with high confidence. Trusted sources such as loc.gov and academic.oup.com usually present ranges or note the limits of the surviving evidence.",
+            sources: ["loc.gov", "academic.oup.com", "jstor.org"]
+          }
+        ],
+        overall_assessment: "This is a realistic demo analysis generated locally. In full Grok mode the system extracts the actual transcript, identifies the real claims, and evaluates each one against the 32 trusted academic and archival sources. The structure you see here is exactly what the live version returns.",
+        sources_used: ["historians.org", "cambridge.org", "archives.gov", "loc.gov", "jstor.org", "hup.harvard.edu"],
+        note: "Demo mode – no backend call was made. Connect the backend (see README) for real Grok-powered analysis."
+      };
+    }
+
+    function renderAnalysis(data) {
+      const content = document.getElementById('analysisContent');
+      let claimsHtml = '';
+
+      (data.claims || []).forEach(c => {
+        const v = (c.verdict || 'Insufficient Evidence').toLowerCase().replace(/\s+/g, '-');
+        const vClass = v.includes('supported') && !v.includes('unsupported') ? 'supported'
+                     : v.includes('mixed') ? 'mixed'
+                     : v.includes('unsupported') ? 'unsupported' : 'insufficient';
+        const sources = (c.sources || []).map(s => '<span class="source-tag">' + escapeHtml(s) + '</span>').join('');
+        claimsHtml += '<div class="claim-item">' +
+          '<div class="claim-text">' + escapeHtml(c.claim) + '</div>' +
+          '<span class="verdict ' + vClass + '">' + escapeHtml(c.verdict) + '</span>' +
+          '<div class="evidence">' + escapeHtml(c.explanation) + '</div>' +
+          (sources ? '<div class="sources-list">' + sources + '</div>' : '') +
+          '</div>';
+      });
+
+      const sourcesUsed = (data.sources_used || []).map(s =>
+        '<a class="source-tag" href="https://' + s + '" target="_blank" rel="noopener">' + escapeHtml(s) + '</a>'
+      ).join('');
+
+      content.innerHTML =
+        '<div class="analysis-card">' +
+          '<div class="analysis-section">' +
+            '<div class="section-title">Video</div>' +
+            '<p style="font-size:0.95rem;">' + escapeHtml(data.video_title || 'Unknown') + '</p>' +
+            (data.video_id && data.video_id !== 'demo' ? '<p style="font-size:0.8rem;color:var(--text-muted);margin-top:4px;">ID: ' + escapeHtml(data.video_id) + '</p>' : '') +
+          '</div>' +
+          '<div class="analysis-section">' +
+            '<div class="section-title">Key Historical Claims</div>' +
+            (claimsHtml || '<p style="color:var(--text-secondary)">No claims extracted.</p>') +
+          '</div>' +
+          '<div class="analysis-section">' +
+            '<div class="section-title">Overall Assessment</div>' +
+            '<p style="font-size:0.95rem;color:var(--text-secondary);">' + escapeHtml(data.overall_assessment) + '</p>' +
+          '</div>' +
+          '<div class="analysis-section">' +
+            '<div class="section-title">Sources Consulted</div>' +
+            '<div class="sources-list">' + (sourcesUsed || '—') + '</div>' +
+          '</div>' +
+        '</div>' +
+        '<p style="font-size:0.8rem;color:var(--text-muted);margin-top:12px;">' + escapeHtml(data.note || '') + '</p>';
+      content.style.display = 'block';
+    }
+
+    async function startAnalysis() {
+      const input = document.getElementById('videoInput').value.trim();
+      if (!input) { document.getElementById('videoInput').focus(); return; }
+
+      const results = document.getElementById('results');
+      const loading = document.getElementById('loadingState');
+      const content = document.getElementById('analysisContent');
+      const status = document.getElementById('statusPill');
+      const btn = document.getElementById('analyzeBtn');
+      const apiBase = (document.getElementById('apiBase').value || '').replace(/\/$/, '');
+
+      results.classList.add('visible');
+      loading.style.display = 'block';
+      content.style.display = 'none';
+      content.innerHTML = '';
+      status.textContent = 'Analyzing';
+      status.className = 'status-pill analyzing';
+      btn.disabled = true;
+
+      ['step1','step2','step3'].forEach((id, i) => {
+        document.getElementById(id).classList.remove('active');
+        setTimeout(function(){ document.getElementById(id).classList.add('active'); }, 350 + i * 600);
+      });
+
+      await new Promise(function(r){ setTimeout(r, 1800); });
+
+      const isUrl = input.includes('youtube.com') || input.includes('youtu.be');
+      const body = isUrl ? { url: input } : { title: input };
+
+      try {
+        const endpoint = apiBase ? (apiBase + '/api/analyze') : '/api/analyze';
+        const controller = new AbortController();
+        const timeout = setTimeout(function(){ controller.abort(); }, 12000);
+
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+          signal: controller.signal
+        });
+        clearTimeout(timeout);
+
+        if (!response.ok) {
+          const err = await response.json().catch(function(){ return {}; });
+          throw new Error(err.detail || ('Server returned ' + response.status));
+        }
+        const data = await response.json();
+        renderAnalysis(data);
+        status.textContent = 'Complete';
+        status.className = 'status-pill complete';
+      } catch (err) {
+        console.info('Backend unavailable, using demo mode:', err.message);
+        const demo = getDemoAnalysis(input);
+        renderAnalysis(demo);
+        status.textContent = 'Demo';
+        status.className = 'status-pill demo';
+      } finally {
+        loading.style.display = 'none';
+        btn.disabled = false;
+      }
+    }
+
+    document.getElementById('videoInput').addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') startAnalysis();
+    });
+  </script>
+</body>
+</html>
