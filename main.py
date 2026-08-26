@@ -65,6 +65,12 @@ def _env_float(name: str, default: float) -> float:
 
 FRONTEND_DIR = Path(__file__).resolve().parent
 
+# Canonical origin, used for robots.txt and sitemap.xml. No trailing slash.
+SITE_URL = os.getenv("SITE_URL", "https://claimifi.biz").rstrip("/")
+
+# Google Search Console HTML verification file, served from the repo root.
+GOOGLE_VERIFICATION_FILE = "googlec5bf5544cd107a90.html"
+
 XAI_API_KEY = os.getenv("XAI_API_KEY", "").strip()
 XAI_BASE_URL = os.getenv("XAI_BASE_URL", "https://api.x.ai/v1").rstrip("/")
 GROK_MODEL = os.getenv("GROK_MODEL", "grok-4").strip() or "grok-4"
@@ -518,9 +524,50 @@ async def serve_frontend():
     )
 
 
+# Files served verbatim from the repo root, mapped to their content type. Anything
+# not listed here is not reachable, so this cannot be walked into a path traversal.
+STATIC_FILES = {
+    "favicon.svg": "image/svg+xml",
+    "apple-touch-icon.png": "image/png",
+    "og-image.png": "image/png",
+    GOOGLE_VERIFICATION_FILE: "text/html",
+}
+
+
 @app.get("/favicon.ico", include_in_schema=False)
-async def favicon():
+async def favicon_ico():
+    svg = FRONTEND_DIR / "favicon.svg"
+    if svg.exists():
+        return FileResponse(svg, media_type="image/svg+xml")
     return Response(status_code=204)
+
+
+@app.get("/robots.txt", include_in_schema=False)
+async def robots():
+    body = (
+        "User-agent: *\n"
+        "Allow: /\n"
+        "Disallow: /api/\n"
+        "Disallow: /health\n"
+        "\n"
+        f"Sitemap: {SITE_URL}/sitemap.xml\n"
+    )
+    return Response(content=body, media_type="text/plain")
+
+
+@app.get("/sitemap.xml", include_in_schema=False)
+async def sitemap():
+    body = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+        "  <url>\n"
+        f"    <loc>{SITE_URL}/</loc>\n"
+        "    <changefreq>weekly</changefreq>\n"
+        "    <priority>1.0</priority>\n"
+        "  </url>\n"
+        "</urlset>\n"
+    )
+    return Response(content=body, media_type="application/xml")
 
 
 @app.get("/health")
@@ -596,6 +643,23 @@ async def analyze(req: AnalyzeRequest, request: Request):
         overall_assessment=overall.strip(),
         sources_used=[str(s).strip() for s in sources_used if str(s).strip()][:20],
         note="Analysis powered by Grok (xAI). Educational tool only — always verify with primary sources.",
+    )
+
+
+# Registered last on purpose: a single-segment path parameter would otherwise
+# shadow every other top-level route, including /health.
+@app.get("/{filename}", include_in_schema=False)
+async def static_file(filename: str):
+    media_type = STATIC_FILES.get(filename)
+    if media_type is None:
+        raise HTTPException(status_code=404, detail="Not found.")
+    path = FRONTEND_DIR / filename
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Not found.")
+    return FileResponse(
+        path,
+        media_type=media_type,
+        headers={"Cache-Control": "public, max-age=86400"},
     )
 
 
