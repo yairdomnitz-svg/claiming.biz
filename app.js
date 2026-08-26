@@ -146,7 +146,8 @@
       '<button class="ghost" type="button" id="copyBtn">' +
         '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
         '<rect x="9" y="9" width="13" height="13" rx="2"/>' +
-        '<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy report</button>');
+        '<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>' +
+        '<span id="copyLabel">Copy report</span></button>');
 
     var copyBtn = $('copyBtn');
     if (copyBtn) {
@@ -162,8 +163,10 @@
         lines.push('Overall: ' + data.overall_assessment);
         if (navigator.clipboard && navigator.clipboard.writeText) {
           navigator.clipboard.writeText(lines.join('\n')).then(function () {
-            copyBtn.textContent = 'Copied';
-            setTimeout(function () { copyBtn.textContent = 'Copy report'; }, 1800);
+            var label = $('copyLabel');
+            if (!label) return;
+            label.textContent = 'Copied';
+            setTimeout(function () { label.textContent = 'Copy report'; }, 1800);
           }, function () {});
         }
       });
@@ -242,6 +245,11 @@
     var killer = setTimeout(function () { ctrl.abort(); }, REQUEST_TIMEOUT_MS);
     var isUrl = /youtube\.com|youtu\.be/.test(q);
 
+    // Set as soon as a response arrives. A fact-checker must never present
+    // sample claims as real, so the demo fallback is confined to the case where
+    // the request never reached the server at all.
+    var responded = false;
+
     fetch('/api/analyze', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -250,6 +258,7 @@
     })
     .then(function (res) {
       clearTimeout(killer);
+      responded = true;
       if (res.ok) {
         return res.json().then(function (d) { setStatus('live', 'Live'); renderAnalysis(d, 'live'); });
       }
@@ -271,8 +280,12 @@
       clearTimeout(killer);
       if (e && e.name === 'AbortError') {
         renderError('The analysis ran past three minutes and was stopped. Try a shorter video.', true);
+      } else if (responded) {
+        // The server answered, but the reply could not be read or rendered.
+        console.error('Failed to render the analysis:', e);
+        renderError('The analysis came back in a form this page could not read. Please try again.', true);
       } else {
-        // Genuine network failure: offline, or the server is unreachable.
+        // Never reached the server: offline, DNS, or the service is down.
         setStatus('demo', 'Demo mode');
         renderAnalysis(demoData(q), 'demo');
       }
@@ -287,18 +300,10 @@
     c.addEventListener('click', function () { input.value = c.textContent; run(); });
   });
 
-  // Landing-page CTAs that scroll back to the analyzer.
-  Array.prototype.forEach.call(document.querySelectorAll('[data-focus-search]'), function (el) {
-    el.addEventListener('click', function (e) {
-      e.preventDefault();
-      window.scrollTo({ top: 0 });
-      input.focus();
-    });
-  });
 
   // Deep link: /app?q=... prefills and runs immediately.
   try {
     var q0 = new URLSearchParams(window.location.search).get('q');
-    if (q0) { input.value = q0; run(); }
+    if (q0) { input.value = q0.slice(0, 300); input.focus(); }
   } catch (e) { /* URLSearchParams unavailable */ }
 })();

@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any, Deque, Dict, List, Optional
 
 import httpx
+import requests
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
@@ -83,6 +84,8 @@ GROK_TEMPERATURE = _env_float("GROK_TEMPERATURE", 0.2)
 
 MAX_TRANSCRIPT_CHARS = _env_int("MAX_TRANSCRIPT_CHARS", 100_000)
 TRANSCRIPT_TIMEOUT = _env_float("TRANSCRIPT_TIMEOUT", 30.0)
+# Per-HTTP-call bound inside the worker thread. Must stay under TRANSCRIPT_TIMEOUT.
+TRANSCRIPT_HTTP_TIMEOUT = _env_float("TRANSCRIPT_HTTP_TIMEOUT", 12.0)
 
 # Rate limiting, per client IP, per process.
 RATE_LIMIT_REQUESTS = _env_int("RATE_LIMIT_REQUESTS", 10)
@@ -111,6 +114,7 @@ TRUSTED_SOURCES = [
     "iupress.org", "factcheck.org", "politifact.com", "snopes.com",
 ]
 VALID_VERDICTS = {"Supported", "Mixed", "Unsupported", "Insufficient Evidence"}
+_TRUSTED_SET = {d.lower() for d in TRUSTED_SOURCES}
 
 
 # ---------------------------------------------------------------------------
@@ -119,7 +123,12 @@ VALID_VERDICTS = {"Supported", "Mixed", "Unsupported", "Insufficient Evidence"}
 app = FastAPI(
     title="Claimifi.biz",
     description="Historical fact-checking powered by Grok (xAI)",
-    version="1.1.0",
+    version="1.2.0",
+    # FastAPI registers these before any route in this file, so the catch-all
+    # cannot shadow them. Nothing here benefits from a public API console.
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
 )
 
 app.add_middleware(
@@ -165,10 +174,19 @@ _rate_lock = asyncio.Lock()
 
 
 def _client_ip(request: Request) -> str:
-    # Railway terminates TLS at its edge and forwards the real client IP here.
+    """Resolve the caller's address from behind Railway's edge proxy.
+
+    X-Forwarded-For reads "client, proxy1, proxy2", and Railway *appends* the
+    address it actually accepted the connection from. Everything to the left of
+    that is supplied by the caller and is therefore forgeable, so the rightmost
+    entry is the only trustworthy one. Reading the leftmost value let a caller
+    rotate the header and bypass the rate limit completely.
+    """
     forwarded = request.headers.get("x-forwarded-for", "")
     if forwarded:
-        return forwarded.split(",")[0].strip()
+        hops = [h.strip() for h in forwarded.split(",") if h.strip()]
+        if hops:
+            return hops[-1]
     return request.client.host if request.client else "unknown"
 
 
@@ -225,6 +243,24 @@ def extract_video_id(url: str) -> Optional[str]:
     return None
 
 
+class _TimeoutSession(requests.Session):
+    """A requests session that applies a default timeout to every call.
+
+    youtube-transcript-api sets no timeout of its own, and the fetch runs in a
+    worker thread whose cancellation is deferred until it returns. Without this,
+    a stalled YouTube connection pins a threadpool slot indefinitely and the
+    outer asyncio timeout never gets a chance to fire.
+    """
+
+    def __init__(self, timeout: float) -> None:
+        super().__init__()
+        self._timeout = timeout
+
+    def request(self, *args, **kwargs):  # type: ignore[override]
+        kwargs.setdefault("timeout", self._timeout)
+        return super().request(*args, **kwargs)
+
+
 def _build_proxy_config():
     """Return a youtube-transcript-api proxy config, or None if unconfigured."""
     if WEBSHARE_PROXY_USERNAME and WEBSHARE_PROXY_PASSWORD:
@@ -266,11 +302,14 @@ def _fetch_transcript_sync(video_id: str) -> str:
 
     # Modern instance API (youtube-transcript-api >= 1.0)
     try:
-        ytt = (
-            YouTubeTranscriptApi(proxy_config=proxy_config)
-            if proxy_config
-            else YouTubeTranscriptApi()
-        )
+        kwargs = {"http_client": _TimeoutSession(TRANSCRIPT_HTTP_TIMEOUT)}
+        if proxy_config:
+            kwargs["proxy_config"] = proxy_config
+        try:
+            ytt = YouTubeTranscriptApi(**kwargs)
+        except TypeError:
+            # Older builds accept neither http_client nor a constructor at all.
+            ytt = YouTubeTranscriptApi(proxy_config=proxy_config) if proxy_config else YouTubeTranscriptApi()
         fetched = ytt.fetch(video_id, languages=languages)
         text = " ".join(snippet.text for snippet in fetched).strip()
         if text:
@@ -395,9 +434,10 @@ def _extract_json_object(raw: str) -> Dict[str, Any]:
         if isinstance(parsed, dict):
             return parsed
 
+    log.error("Grok returned unparseable content: %s", text[:500])
     raise HTTPException(
         status_code=502,
-        detail="Grok returned a response that was not valid JSON. First 300 chars: " + text[:300],
+        detail="The fact-checking model returned a malformed response. Please try again.",
     )
 
 
@@ -458,7 +498,7 @@ async def call_grok(transcript: str, video_context: str = "") -> Dict[str, Any]:
         log.error("Grok returned %s: %s", resp.status_code, resp.text[:500])
         raise HTTPException(
             status_code=502,
-            detail=f"Grok API returned {resp.status_code}: {resp.text[:300]}",
+            detail="The fact-checking model returned an error. Please try again.",
         )
 
     try:
@@ -481,6 +521,26 @@ async def call_grok(transcript: str, video_context: str = "") -> Dict[str, Any]:
     return _extract_json_object(str(raw))
 
 
+def _filter_sources(values: Any, limit: int = 8) -> List[str]:
+    """Keep only domains that are actually on the vetted list.
+
+    The model is instructed to cite trusted domains only, but the transcript is
+    untrusted input and can steer it off-list. These strings become outbound
+    links on a page whose entire premise is the vetted source list, so they get
+    checked rather than trusted.
+    """
+    if not isinstance(values, list):
+        return []
+    kept: List[str] = []
+    for value in values:
+        domain = str(value).strip().lower()
+        if domain.startswith("www."):
+            domain = domain[4:]
+        if domain in _TRUSTED_SET and domain not in kept:
+            kept.append(domain)
+    return kept[:limit]
+
+
 def _normalize_claims(analysis: Dict[str, Any]) -> List[Claim]:
     raw_claims = analysis.get("claims")
     if not isinstance(raw_claims, list):
@@ -494,9 +554,6 @@ def _normalize_claims(analysis: Dict[str, Any]) -> List[Claim]:
         if verdict not in VALID_VERDICTS:
             matched = next((v for v in VALID_VERDICTS if v.lower() == verdict.lower()), None)
             verdict = matched or "Insufficient Evidence"
-        sources = item.get("sources")
-        if not isinstance(sources, list):
-            sources = []
         claim_text = str(item.get("claim", "") or "").strip()
         if not claim_text:
             continue
@@ -505,7 +562,7 @@ def _normalize_claims(analysis: Dict[str, Any]) -> List[Claim]:
                 claim=claim_text,
                 verdict=verdict,
                 explanation=str(item.get("explanation", "") or "").strip(),
-                sources=[str(s).strip() for s in sources if str(s).strip()][:8],
+                sources=_filter_sources(item.get("sources")),
             )
         )
     return claims
@@ -587,6 +644,7 @@ async def robots():
         "Allow: /\n"
         "Disallow: /api/\n"
         "Disallow: /health\n"
+        "Disallow: /app?\n"
         "\n"
         f"Sitemap: {SITE_URL}/sitemap.xml\n"
     )
@@ -670,8 +728,8 @@ async def analyze(req: AnalyzeRequest, request: Request):
 
     analysis = await call_grok(transcript, video_context=video_title)
 
-    sources_used = analysis.get("sources_used")
-    if not isinstance(sources_used, list) or not sources_used:
+    sources_used = _filter_sources(analysis.get("sources_used"), limit=20)
+    if not sources_used:
         sources_used = TRUSTED_SOURCES[:6]
 
     overall = analysis.get("overall_assessment")
@@ -684,7 +742,7 @@ async def analyze(req: AnalyzeRequest, request: Request):
         transcript_preview=(transcript[:350] + "…") if len(transcript) > 350 else transcript,
         claims=_normalize_claims(analysis),
         overall_assessment=overall.strip(),
-        sources_used=[str(s).strip() for s in sources_used if str(s).strip()][:20],
+        sources_used=sources_used,
         note="Analysis powered by Grok (xAI). Educational tool only — always verify with primary sources.",
     )
 

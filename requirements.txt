@@ -4,5 +4,8 @@ uvicorn[standard]>=0.32.0,<1.0.0
 # (used for the residential-proxy fallback) do not exist before 1.0.
 youtube-transcript-api>=1.0.0,<2.0.0
 httpx>=0.27.0,<1.0.0
+# Used directly for the bounded transcript HTTP session; also a
+# youtube-transcript-api dependency, pinned here because we import it.
+requests>=2.31.0,<3.0.0
 pydantic>=2.9.0,<3.0.0
 python-dotenv>=1.0.0,<2.0.0

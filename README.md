@@ -8,13 +8,24 @@ constrained to a fixed list of academic, archival, and fact-checking domains.
 ## Files (all at repository root)
 
 ```
-main.py            FastAPI backend, also serves the frontend
-index.html         Frontend (single page, no build step)
-requirements.txt   Pinned dependencies
-Procfile           Start command fallback
-.python-version    Pins the Python version for the Railway build
-.env.example       Template for local .env
+main.py                FastAPI backend; serves both pages and the API
+index.html             Landing page (/)
+app.html               Analyzer (/app)
+styles.css             Shared stylesheet
+app.js                 Shared analyzer logic
+favicon.svg            Tab icon
+apple-touch-icon.png   iOS home-screen icon
+og-image.png           1200x630 social preview
+google*.html           Search Console verification file
+requirements.txt       Pinned dependencies
+Procfile               Start command fallback
+.python-version        Pins the Python version for the Railway build
+.env.example           Template for local .env
 ```
+
+There is no build step: the CSS and JS are served as-is. Both pages reference
+them as `/styles.css?v=<hash>`, where the hash is derived from the file contents
+at startup, so a deploy invalidates a visitor's cached copy automatically.
 
 ## Railway deployment
 
@@ -28,6 +39,8 @@ No Dockerfile and no `railway.toml` are needed (Config-as-Code is deprecated).
 | `XAI_API_KEY` | **Yes** | From https://console.x.ai. Without it the site serves demo results only. |
 | `GROK_MODEL` | No | Defaults to `grok-4`. |
 | `ALLOWED_ORIGINS` | No | Defaults to `*`. Set to `https://claimifi.biz` to lock down the API. |
+| `SITE_URL` | No | Canonical origin for `robots.txt` and `sitemap.xml`. Defaults to `https://claimifi.biz` — **set this on any other deploy** or the sitemap advertises the wrong host. |
+| `TRANSCRIPT_HTTP_TIMEOUT` | No | Per-request bound on YouTube calls, in seconds. Default `12`. |
 | `RATE_LIMIT_REQUESTS` | No | Analyses per IP per window. Default `10`. `0` disables. |
 | `RATE_LIMIT_WINDOW` | No | Window in seconds. Default `600`. |
 | `WEBSHARE_PROXY_USERNAME` / `WEBSHARE_PROXY_PASSWORD` | See below | Residential proxy for transcript fetching. |
@@ -41,8 +54,9 @@ Do **not** set `PORT` yourself — Railway injects it and must match the domain'
   ```
   uvicorn main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips="*" --timeout-keep-alive 120
   ```
-  `--proxy-headers` is what makes per-IP rate limiting see the real visitor instead of
-  Railway's edge. `--timeout-keep-alive 120` keeps long analyses from being cut off.
+  `--timeout-keep-alive 120` keeps long analyses from being cut off. Rate limiting
+  reads the rightmost `X-Forwarded-For` hop — the address Railway itself observed —
+  because anything further left is supplied by the caller and can be forged.
 - **Healthcheck Path:** `/health`
 - **Serverless:** leave disabled. An analysis can run for a minute or more; cold starts on
   top of that push requests past the client timeout.
@@ -70,10 +84,14 @@ still works because it never touches YouTube.
 
 | Endpoint | Purpose |
 | --- | --- |
-| `GET /` | The frontend |
+| `GET /` | Landing page |
+| `GET /app` | Analyzer; accepts `?q=` to prefill the input |
 | `GET /health` | Liveness + configuration status |
 | `GET /api/config` | Tells the frontend whether live analysis is available |
-| `POST /api/analyze` | `{"url": "..."} ` or `{"title": "..."}` |
+| `POST /api/analyze` | `{"url": "..."}` or `{"title": "..."}` |
+| `GET /robots.txt`, `/sitemap.xml` | SEO |
+
+The interactive API docs (`/docs`, `/redoc`, `/openapi.json`) are disabled.
 
 ## Local run
 

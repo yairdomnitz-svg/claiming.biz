@@ -9,19 +9,18 @@
   --border-strong: #33415c;
   --text:          #f1f5f9;
   --text-2:        #a9b6c9;
-  --text-3:        #6f7f96;
+  --text-3:        #7f8fa6;
   /* Palette: #30AFFF, #92EEFF, #D8FFC5, #C4F7CA.
      All four are high-lightness, so they carry the accent roles over a dark
      neutral base rather than defining backgrounds themselves. */
   --accent:        #30afff;  /* primary  */
   --accent-lite:   #92eeff;  /* highlight, gradient partner, hover */
-  --accent-2:      #0d8ee0;  /* darker shade for depth in gradients */
   --accent-soft:   rgba(48, 175, 255, .12);
   --ok:            #c4f7ca;  /* Supported verdict */
   --ok-soft:       #d8ffc5;  /* positive accents: checks, affirmative bullets */
   --warn:          #fbbf24;  /* Mixed — no warning hue exists in the palette */
   --bad:           #fb7185;  /* Unsupported — verdicts must stay distinguishable */
-  --neutral:       #94a3b8;
+  --neutral:       #8fa0b8;  /* Insufficient Evidence - deliberately colourless */
   --r-sm: 8px; --r: 12px; --r-lg: 18px; --r-xl: 24px;
   --shadow-lg: 0 18px 50px -12px rgba(0,0,0,.65);
   --ring: 0 0 0 3px rgba(48,175,255,.3);
@@ -143,6 +142,7 @@ section { padding: 76px 0; }
 /* ---------------- Hero ---------------- */
 .hero { padding: 76px 0 40px; text-align: center; }
 .hero-app { padding: 48px 0 24px; text-align: center; }
+.hero-app h1 { font-size: clamp(2rem, 5vw, 2.8rem); margin-bottom: 14px; }
 
 /* ---------------- Search ---------------- */
 .search {
@@ -187,7 +187,7 @@ section { padding: 76px 0; }
   padding: 6px 13px; border-radius: 999px; cursor: pointer;
   transition: border-color .18s, color .18s, background .18s;
 }
-.chip:hover { border-color: var(--accent-lite); color: var(--accent-lite); background: var(--accent-soft); }
+.chip:hover { border-color: var(--accent-lite); color: var(--accent-lite); background: var(--accent-soft); text-decoration: none; }
 
 .trust { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px 34px; margin-top: 34px; }
 .trust div { display: flex; align-items: center; gap: 8px; color: var(--text-3); font-size: .85rem; }
@@ -259,7 +259,7 @@ section { padding: 76px 0; }
 .verdict[data-v="supported"]    { background: rgba(196,247,202,.13); color: var(--ok); }
 .verdict[data-v="mixed"]        { background: rgba(251,191,36,.13); color: var(--warn); }
 .verdict[data-v="unsupported"]  { background: rgba(251,113,133,.13); color: var(--bad); }
-.verdict[data-v="insufficient"] { background: rgba(148,163,184,.13); color: var(--neutral); }
+.verdict[data-v="insufficient"] { background: rgba(143,160,184,.13); color: var(--neutral); }
 
 .claim-why { color: var(--text-2); font-size: .93rem; }
 .tags { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
@@ -306,7 +306,7 @@ a.tag:hover { border-color: var(--accent-lite); color: var(--accent-lite); text-
 /* ---------------- Landing: cards ---------------- */
 .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px; }
 .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 26px 24px; }
-.card h3 { font-size: 1.03rem; font-weight: 600; margin-bottom: 8px; letter-spacing: -.01em; }
+.card h3, .card h2 { font-size: 1.03rem; font-weight: 600; margin-bottom: 8px; letter-spacing: -.01em; }
 .card p { color: var(--text-2); font-size: .92rem; }
 .card-icon {
   width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center;
@@ -379,7 +379,7 @@ details.faq .a { padding: 0 22px 20px; color: var(--text-2); font-size: .93rem; 
 footer { border-top: 1px solid var(--border); padding: 48px 0 32px; margin-top: 60px; }
 .foot-grid { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 40px; margin-bottom: 36px; }
 .foot-about p { color: var(--text-3); font-size: .86rem; margin-top: 14px; max-width: 340px; }
-.foot-col h4 { font-size: .76rem; text-transform: uppercase; letter-spacing: .08em; color: var(--text-3); margin-bottom: 14px; }
+.foot-col h3 { font-size: .76rem; text-transform: uppercase; letter-spacing: .08em; color: var(--text-3); margin-bottom: 14px; }
 .foot-col ul { list-style: none; display: flex; flex-direction: column; gap: 9px; }
 .foot-col a { color: var(--text-2); font-size: .88rem; }
 .foot-col a:hover { color: var(--accent-lite); }
