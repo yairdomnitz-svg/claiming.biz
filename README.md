@@ -44,6 +44,8 @@ No Dockerfile and no `railway.toml` are needed (Config-as-Code is deprecated).
 | `RATE_LIMIT_REQUESTS` | No | Analyses per IP per window. Default `10`. `0` disables. |
 | `RATE_LIMIT_WINDOW` | No | Window in seconds. Default `600`. |
 | `WEBSHARE_PROXY_USERNAME` / `WEBSHARE_PROXY_PASSWORD` | See below | Residential proxy for transcript fetching. |
+| `WEBSHARE_RETRIES` | No | Retries when an exit node is blocked; each one rotates to a fresh IP. Default `2`. Webshare's own default is 10, which can occupy a worker thread for two minutes. |
+| `WEBSHARE_IP_LOCATIONS` | No | Country codes (`nl,de,gb`) to pin the exit pool nearer the deploy region. Empty uses the full pool. |
 | `PROXY_URL` | See below | Alternative to Webshare: any `http://user:pass@host:port`. |
 
 Do **not** set `PORT` yourself — Railway injects it and must match the domain's target port.
@@ -73,12 +75,25 @@ YouTube blocks requests from datacenter IP ranges, which includes all of Railway
 fetching works on your laptop and then fails in production with an IP-block error. There is no
 code-side workaround; requests have to leave from a residential IP.
 
-Set `WEBSHARE_PROXY_USERNAME` / `WEBSHARE_PROXY_PASSWORD` (Webshare's residential tier is
-what `youtube-transcript-api` supports natively) or `PROXY_URL` for any other provider. Until
-one is configured, URL analysis returns a 502 explaining the block, while title-only analysis
-still works because it never touches YouTube.
+**Setting up Webshare:**
 
-`GET /health` reports `transcript_proxy_configured` so you can confirm it took effect.
+1. Create an account at https://www.webshare.io
+2. Buy a **Residential** package. Not "Proxy Server", not "Static Residential" —
+   `youtube-transcript-api` only supports the rotating residential tier, and the
+   other two will not work.
+3. Copy the **Proxy Username** and **Proxy Password** from
+   https://dashboard.webshare.io/proxy/settings — these are proxy credentials,
+   not your account login.
+4. Add them as `WEBSHARE_PROXY_USERNAME` and `WEBSHARE_PROXY_PASSWORD` in the
+   Railway **Variables** tab, then click **Deploy** to apply.
+
+The username is combined with the location filter and a `-rotate` suffix
+automatically, so a fresh exit IP is used per request. `PROXY_URL` is available
+for any other provider. Until one is configured, URL analysis returns a 502
+explaining the block, while title-only analysis is unaffected because it never
+touches YouTube.
+
+`GET /health` reports `transcript_proxy_configured` and `transcript_proxy_kind` so you can confirm it took effect.
 
 ## API
 

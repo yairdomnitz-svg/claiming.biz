@@ -83,9 +83,9 @@ GROK_MAX_TOKENS = _env_int("GROK_MAX_TOKENS", 8000)
 GROK_TEMPERATURE = _env_float("GROK_TEMPERATURE", 0.2)
 
 MAX_TRANSCRIPT_CHARS = _env_int("MAX_TRANSCRIPT_CHARS", 100_000)
-TRANSCRIPT_TIMEOUT = _env_float("TRANSCRIPT_TIMEOUT", 30.0)
+TRANSCRIPT_TIMEOUT = _env_float("TRANSCRIPT_TIMEOUT", 45.0)
 # Per-HTTP-call bound inside the worker thread. Must stay under TRANSCRIPT_TIMEOUT.
-TRANSCRIPT_HTTP_TIMEOUT = _env_float("TRANSCRIPT_HTTP_TIMEOUT", 12.0)
+TRANSCRIPT_HTTP_TIMEOUT = _env_float("TRANSCRIPT_HTTP_TIMEOUT", 10.0)
 
 # Rate limiting, per client IP, per process.
 RATE_LIMIT_REQUESTS = _env_int("RATE_LIMIT_REQUESTS", 10)
@@ -102,6 +102,19 @@ ALLOWED_ORIGINS = [
 WEBSHARE_PROXY_USERNAME = os.getenv("WEBSHARE_PROXY_USERNAME", "").strip()
 WEBSHARE_PROXY_PASSWORD = os.getenv("WEBSHARE_PROXY_PASSWORD", "").strip()
 GENERIC_PROXY_URL = os.getenv("PROXY_URL", "").strip()
+
+# Webshare rotates to a fresh IP on each retry, so a couple of attempts is worth
+# it when one exit node is blocked. Its own default is 10, which at the per-call
+# timeout below could occupy a worker thread for two minutes; the fetch runs in a
+# thread whose cancellation is deferred, so that time is not recoverable.
+WEBSHARE_RETRIES = _env_int("WEBSHARE_RETRIES", 2)
+# Optional country codes ("us,gb,de") to pin the exit pool nearer the region the
+# service runs in. Empty means Webshare's full pool, which is the larger one.
+WEBSHARE_IP_LOCATIONS = [
+    loc.strip().lower()
+    for loc in os.getenv("WEBSHARE_IP_LOCATIONS", "").split(",")
+    if loc.strip()
+]
 
 TRUSTED_SOURCES = [
     "historians.org", "oah.org", "history.ac.uk", "iamhist.net",
@@ -262,27 +275,58 @@ class _TimeoutSession(requests.Session):
 
 
 def _build_proxy_config():
-    """Return a youtube-transcript-api proxy config, or None if unconfigured."""
+    """Return a youtube-transcript-api proxy config, or None if unconfigured.
+
+    YouTube blocks datacenter IP ranges, which covers every Railway region, so
+    without one of these the transcript fetch fails in production even though it
+    works from a laptop. The config is combined with the timeout session in
+    _fetch_transcript_sync: the library copies the proxy settings onto whatever
+    session it is handed, so both apply.
+    """
     if WEBSHARE_PROXY_USERNAME and WEBSHARE_PROXY_PASSWORD:
         try:
             from youtube_transcript_api.proxies import WebshareProxyConfig
-
-            return WebshareProxyConfig(
-                proxy_username=WEBSHARE_PROXY_USERNAME,
-                proxy_password=WEBSHARE_PROXY_PASSWORD,
-            )
         except ImportError:
             log.warning("Webshare credentials set but youtube_transcript_api.proxies is unavailable.")
+        else:
+            kwargs = {
+                "proxy_username": WEBSHARE_PROXY_USERNAME,
+                "proxy_password": WEBSHARE_PROXY_PASSWORD,
+                "retries_when_blocked": max(0, WEBSHARE_RETRIES),
+            }
+            if WEBSHARE_IP_LOCATIONS:
+                kwargs["filter_ip_locations"] = WEBSHARE_IP_LOCATIONS
+            try:
+                config = WebshareProxyConfig(**kwargs)
+            except TypeError:
+                # Older builds accept only the two credentials.
+                config = WebshareProxyConfig(
+                    proxy_username=WEBSHARE_PROXY_USERNAME,
+                    proxy_password=WEBSHARE_PROXY_PASSWORD,
+                )
+            log.info(
+                "Transcript proxy: Webshare (retries=%s, locations=%s)",
+                WEBSHARE_RETRIES,
+                ",".join(WEBSHARE_IP_LOCATIONS) or "all",
+            )
+            return config
+
     if GENERIC_PROXY_URL:
         try:
             from youtube_transcript_api.proxies import GenericProxyConfig
-
+        except ImportError:
+            log.warning("PROXY_URL set but youtube_transcript_api.proxies is unavailable.")
+        else:
+            log.info("Transcript proxy: generic HTTP proxy")
             return GenericProxyConfig(
                 http_url=GENERIC_PROXY_URL,
                 https_url=GENERIC_PROXY_URL,
             )
-        except ImportError:
-            log.warning("PROXY_URL set but youtube_transcript_api.proxies is unavailable.")
+
+    log.warning(
+        "No transcript proxy configured. YouTube blocks datacenter IPs, so URL "
+        "analysis will fail in production. Title-only analysis is unaffected."
+    )
     return None
 
 
@@ -679,6 +723,11 @@ async def health():
         "model": GROK_MODEL,
         "transcript_proxy_configured": bool(
             (WEBSHARE_PROXY_USERNAME and WEBSHARE_PROXY_PASSWORD) or GENERIC_PROXY_URL
+        ),
+        "transcript_proxy_kind": (
+            "webshare"
+            if (WEBSHARE_PROXY_USERNAME and WEBSHARE_PROXY_PASSWORD)
+            else ("generic" if GENERIC_PROXY_URL else None)
         ),
     }
 
