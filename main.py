@@ -16,12 +16,14 @@ Then open http://localhost:8000
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
 import re
 import time
 from collections import deque
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Deque, Dict, List, Optional
 
@@ -30,7 +32,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 
 load_dotenv()
@@ -534,13 +536,33 @@ STATIC_FILES = {
 REVALIDATE_ALWAYS = {"styles.css", "app.js", GOOGLE_VERIFICATION_FILE}
 
 
-def _serve_page(name: str) -> FileResponse:
+@lru_cache(maxsize=1)
+def _asset_version() -> str:
+    """Short digest of the CSS+JS, used to bust caches across deploys.
+
+    A browser that cached styles.css under a long max-age would otherwise keep
+    serving the old file after a deploy. Changing the query string changes the
+    URL, so the stale entry is bypassed without needing a hard refresh.
+    """
+    digest = hashlib.sha256()
+    for name in ("styles.css", "app.js"):
+        path = FRONTEND_DIR / name
+        if path.is_file():
+            digest.update(path.read_bytes())
+    return digest.hexdigest()[:10]
+
+
+@lru_cache(maxsize=4)
+def _render_page(name: str) -> str:
     page = FRONTEND_DIR / name
     if not page.is_file():
         raise HTTPException(status_code=500, detail=f"{name} is missing from the deployment.")
-    return FileResponse(
-        page,
-        media_type="text/html",
+    return page.read_text(encoding="utf-8").replace("__ASSET_V__", _asset_version())
+
+
+def _serve_page(name: str) -> HTMLResponse:
+    return HTMLResponse(
+        content=_render_page(name),
         headers={"Cache-Control": "no-cache, must-revalidate"},
     )
 

@@ -181,6 +181,7 @@ section { padding: 76px 0; }
 .examples { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 20px; }
 .examples-label { color: var(--text-3); font-size: .82rem; align-self: center; margin-right: 2px; }
 .chip {
+  display: inline-block; text-decoration: none;
   background: var(--bg-raised); border: 1px solid var(--border);
   color: var(--text-2); font: inherit; font-size: .82rem;
   padding: 6px 13px; border-radius: 999px; cursor: pointer;
@@ -276,6 +277,18 @@ a.tag:hover { border-color: var(--accent-lite); color: var(--accent-lite); text-
 .step.ok .box { border-color: var(--ok); background: var(--ok); box-shadow: none; }
 .step.ok { color: var(--text-2); }
 .elapsed { margin-top: 18px; font-size: .8rem; color: var(--text-3); font-variant-numeric: tabular-nums; }
+
+/* ---------------- Landing hero actions ---------------- */
+.hero-actions { display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin-top: 38px; }
+.hero-actions .btn { text-decoration: none; }
+.btn-ghost {
+  display: inline-flex; align-items: center; justify-content: center;
+  font: inherit; font-size: .97rem; font-weight: 600;
+  padding: 15px 26px; border-radius: var(--r-lg);
+  border: 1px solid var(--border-strong); color: var(--text-2);
+  background: transparent; transition: border-color .18s, color .18s, background .18s;
+}
+.btn-ghost:hover { text-decoration: none; border-color: var(--accent-lite); color: var(--accent-lite); background: var(--accent-soft); }
 
 /* ---------------- Landing: stats ---------------- */
 .stats {
@@ -384,6 +397,8 @@ footer { border-top: 1px solid var(--border); padding: 48px 0 32px; margin-top: 
   .panel-body, .panel-head { padding: 18px; }
   section { padding: 56px 0; }
   .ghost { margin-left: 0; }
+  .hero-actions { flex-direction: column; }
+  .hero-actions .btn, .btn-ghost { width: 100%; }
   .foot-grid { grid-template-columns: 1fr; gap: 28px; }
   .cta { padding: 36px 22px; }
   /* The brand, the status badge and the header CTA cannot share a 375px row.

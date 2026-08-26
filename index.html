@@ -35,7 +35,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/styles.css">
+<link rel="stylesheet" href="/styles.css?v=__ASSET_V__">
 
 <script type="application/ld+json">
 {
@@ -125,25 +125,19 @@
       <h1>Fact-check history<br><em>on YouTube.</em></h1>
       <p class="lede">Paste a history video. Claimifi.biz pulls out every historical claim it makes and checks each one against 32 academic, archival, and fact-checking sources.</p>
 
-      <div class="search">
-        <div class="search-row">
-          <label class="sr" for="videoInput">YouTube video URL or title</label>
-          <div class="field">
-            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-            <input type="text" id="videoInput" placeholder="Paste a YouTube link, or type a video title" autocomplete="off" spellcheck="false" enterkeyhint="go">
-          </div>
-          <button class="btn" id="analyzeBtn" type="button">
-            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-            Analyze
-          </button>
-        </div>
+      <div class="hero-actions">
+        <a class="btn" href="/app">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          Open the analyzer
+        </a>
+        <a class="btn-ghost" href="#how">See how it works</a>
       </div>
 
       <div class="examples">
-        <span class="examples-label">Try:</span>
-        <button class="chip" type="button">The Fall of the Roman Empire</button>
-        <button class="chip" type="button">Who really built the pyramids</button>
-        <button class="chip" type="button">The truth about the Dark Ages</button>
+        <span class="examples-label">Popular checks:</span>
+        <a class="chip" href="/app?q=The+Fall+of+the+Roman+Empire">The Fall of the Roman Empire</a>
+        <a class="chip" href="/app?q=Who+really+built+the+pyramids">Who really built the pyramids</a>
+        <a class="chip" href="/app?q=The+truth+about+the+Dark+Ages">The truth about the Dark Ages</a>
       </div>
 
       <div class="trust">
@@ -152,8 +146,6 @@
         <div><svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>Free, no sign-up</div>
       </div>
     </div>
-
-    <div id="results" aria-live="polite" aria-atomic="false"></div>
 
     <!-- ================= Stats ================= -->
     <div class="stats">
@@ -403,6 +395,6 @@
   </div>
 </footer>
 
-<script src="/app.js" defer></script>
+<script src="/app.js?v=__ASSET_V__" defer></script>
 </body>
 </html>
