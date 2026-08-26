@@ -189,19 +189,13 @@
       <div class="badge">🔍 Academic • Archival • Fact-checked sources only</div>
     </section>
 
-    <div class="notice">
+    <div class="notice" id="notice">
       <span style="font-size:1.2rem;">ℹ️</span>
       <div>
         <strong>Claimifi.biz</strong><br>
         Paste any YouTube history video link or title and press Analyze.<br>
-        When the backend is connected you get real Grok-powered fact-checking against trusted academic sources. Otherwise a high-quality demo analysis is shown.
+        <span id="noticeMode">Checking service status…</span>
       </div>
-    </div>
-
-    <div style="margin-bottom:20px; font-size:0.85rem; color:var(--text-muted);">
-      <label for="apiBase">Backend API URL (leave empty for same-origin / demo): </label>
-      <input type="text" id="apiBase" value="" placeholder="http://localhost:8000"
-             style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;padding:6px 10px;color:var(--text-primary);width:240px;font-size:0.85rem;">
     </div>
 
     <div class="search-card">
@@ -350,6 +344,41 @@
       content.style.display = 'block';
     }
 
+    // Real analysis can legitimately take a couple of minutes: transcript fetch plus a
+    // full Grok pass. The client budget must stay above the server's, or every real
+    // result gets thrown away right before it arrives.
+    const REQUEST_TIMEOUT_MS = 180000;
+
+    let serviceIsLive = null; // null = unknown, true = Grok configured, false = demo only
+
+    function renderError(message) {
+      const content = document.getElementById('analysisContent');
+      content.innerHTML =
+        '<div class="analysis-card">' +
+          '<div class="analysis-section">' +
+            '<div class="section-title">Could not complete the analysis</div>' +
+            '<p style="font-size:0.95rem;color:var(--text-secondary);">' + escapeHtml(message) + '</p>' +
+          '</div>' +
+        '</div>';
+      content.style.display = 'block';
+    }
+
+    async function loadServiceStatus() {
+      const label = document.getElementById('noticeMode');
+      try {
+        const res = await fetch('/api/config', { cache: 'no-store' });
+        if (!res.ok) throw new Error('status ' + res.status);
+        const cfg = await res.json();
+        serviceIsLive = !!cfg.live;
+        label.textContent = serviceIsLive
+          ? 'Live mode: claims are fact-checked by Grok against the trusted sources below.'
+          : 'Demo mode: the fact-checking key is not configured on this server, so a sample analysis is shown.';
+      } catch (err) {
+        serviceIsLive = false;
+        label.textContent = 'Demo mode: the analysis service is not reachable, so a sample analysis is shown.';
+      }
+    }
+
     async function startAnalysis() {
       const input = document.getElementById('videoInput').value.trim();
       if (!input) { document.getElementById('videoInput').focus(); return; }
@@ -359,9 +388,9 @@
       const content = document.getElementById('analysisContent');
       const status = document.getElementById('statusPill');
       const btn = document.getElementById('analyzeBtn');
-      const apiBase = (document.getElementById('apiBase').value || '').replace(/\/$/, '');
 
       results.classList.add('visible');
+      results.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       loading.style.display = 'block';
       content.style.display = 'none';
       content.innerHTML = '';
@@ -369,48 +398,69 @@
       status.className = 'status-pill analyzing';
       btn.disabled = true;
 
-      ['step1','step2','step3'].forEach((id, i) => {
+      const stepTimers = ['step1','step2','step3'].map(function(id, i) {
         document.getElementById(id).classList.remove('active');
-        setTimeout(function(){ document.getElementById(id).classList.add('active'); }, 350 + i * 600);
+        return setTimeout(function(){ document.getElementById(id).classList.add('active'); }, 350 + i * 4000);
       });
-
-      await new Promise(function(r){ setTimeout(r, 1800); });
 
       const isUrl = input.includes('youtube.com') || input.includes('youtu.be');
       const body = isUrl ? { url: input } : { title: input };
 
-      try {
-        const endpoint = apiBase ? (apiBase + '/api/analyze') : '/api/analyze';
-        const controller = new AbortController();
-        const timeout = setTimeout(function(){ controller.abort(); }, 12000);
+      const controller = new AbortController();
+      const timeout = setTimeout(function(){ controller.abort(); }, REQUEST_TIMEOUT_MS);
 
-        const response = await fetch(endpoint, {
+      try {
+        const response = await fetch('/api/analyze', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
           signal: controller.signal
         });
-        clearTimeout(timeout);
 
         if (!response.ok) {
           const err = await response.json().catch(function(){ return {}; });
-          throw new Error(err.detail || ('Server returned ' + response.status));
+          const detail = typeof err.detail === 'string' ? err.detail : null;
+
+          // 503 means the server is up but has no Grok key: that is the one case
+          // where the demo analysis is the honest thing to show.
+          if (response.status === 503) {
+            serviceIsLive = false;
+            renderAnalysis(getDemoAnalysis(input));
+            status.textContent = 'Demo';
+            status.className = 'status-pill demo';
+            return;
+          }
+          renderError(detail || ('The server returned an error (' + response.status + ').'));
+          status.textContent = 'Error';
+          status.className = 'status-pill error';
+          return;
         }
-        const data = await response.json();
-        renderAnalysis(data);
+
+        renderAnalysis(await response.json());
+        serviceIsLive = true;
         status.textContent = 'Complete';
         status.className = 'status-pill complete';
       } catch (err) {
-        console.info('Backend unavailable, using demo mode:', err.message);
-        const demo = getDemoAnalysis(input);
-        renderAnalysis(demo);
-        status.textContent = 'Demo';
-        status.className = 'status-pill demo';
+        if (err && err.name === 'AbortError') {
+          renderError('The analysis took longer than three minutes and was stopped. Try a shorter video.');
+          status.textContent = 'Error';
+          status.className = 'status-pill error';
+        } else {
+          // Genuine network failure (offline, server down): show the demo analysis.
+          console.warn('Analysis request failed, falling back to demo:', err);
+          renderAnalysis(getDemoAnalysis(input));
+          status.textContent = 'Demo';
+          status.className = 'status-pill demo';
+        }
       } finally {
+        clearTimeout(timeout);
+        stepTimers.forEach(clearTimeout);
         loading.style.display = 'none';
         btn.disabled = false;
       }
     }
+
+    loadServiceStatus();
 
     document.getElementById('videoInput').addEventListener('keydown', function(e) {
       if (e.key === 'Enter') startAnalysis();
