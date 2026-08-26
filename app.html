@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0a0e18">
+
+<title>Analyzer — Claimifi.biz</title>
+<meta name="description" content="Paste a YouTube history video or its title and get every historical claim checked against 32 academic, archival, and fact-checking sources.">
+<meta name="robots" content="index, follow, max-image-preview:large">
+<link rel="canonical" href="https://claimifi.biz/app">
+
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Claimifi.biz">
+<meta property="og:title" content="Analyzer — Claimifi.biz">
+<meta property="og:description" content="Paste a YouTube history video and get every historical claim checked against 32 trusted sources.">
+<meta property="og:url" content="https://claimifi.biz/app">
+<meta property="og:image" content="https://claimifi.biz/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Analyzer — Claimifi.biz">
+<meta name="twitter:description" content="Paste a YouTube history video and get every historical claim checked against 32 trusted sources.">
+<meta name="twitter:image" content="https://claimifi.biz/og-image.png">
+
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/styles.css">
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebPage",
+  "name": "Analyzer — Claimifi.biz",
+  "url": "https://claimifi.biz/app",
+  "description": "Check the historical claims in a YouTube video against 32 academic, archival, and fact-checking sources.",
+  "isPartOf": { "@type": "WebSite", "@id": "https://claimifi.biz/#website" },
+  "breadcrumb": {
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      { "@type": "ListItem", "position": 1, "name": "Home", "item": "https://claimifi.biz/" },
+      { "@type": "ListItem", "position": 2, "name": "Analyzer", "item": "https://claimifi.biz/app" }
+    ]
+  }
+}
+</script>
+</head>
+<body>
+
+<a href="#main" class="skip">Skip to content</a>
+
+<header>
+  <div class="wrap nav">
+    <a href="/" class="brand" aria-label="Claimifi.biz home">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+      </span>
+      <span class="brand-name">Claimifi<span>.biz</span></span>
+    </a>
+    <nav class="nav-links" aria-label="Primary">
+      <a href="/#how">How it works</a>
+      <a href="/#sources">Sources</a>
+      <a href="/#faq">FAQ</a>
+    </nav>
+    <div class="nav-right">
+      <span class="status" id="status" role="status"><span class="dot" aria-hidden="true"></span><span id="statusText">Checking…</span></span>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+  <div class="wrap wrap-narrow">
+
+    <div class="hero-app">
+      <h1 style="font-size:clamp(2rem,5vw,2.8rem);margin-bottom:14px">Analyzer</h1>
+      <p class="lede">Paste a YouTube history video, or type a title if the video has no captions.</p>
+
+      <div class="search">
+        <div class="search-row">
+          <label class="sr" for="videoInput">YouTube video URL or title</label>
+          <div class="field">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+            <input type="text" id="videoInput" placeholder="Paste a YouTube link, or type a video title" autocomplete="off" spellcheck="false" enterkeyhint="go" autofocus>
+          </div>
+          <button class="btn" id="analyzeBtn" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+            Analyze
+          </button>
+        </div>
+      </div>
+
+      <div class="examples">
+        <span class="examples-label">Try:</span>
+        <button class="chip" type="button">The Fall of the Roman Empire</button>
+        <button class="chip" type="button">Who really built the pyramids</button>
+        <button class="chip" type="button">The truth about the Dark Ages</button>
+      </div>
+    </div>
+
+    <div id="results" aria-live="polite" aria-atomic="false"></div>
+
+    <section style="padding:56px 0 0">
+      <div class="grid-3">
+        <article class="card">
+          <h3>Four verdict levels</h3>
+          <p>Supported, Mixed, Unsupported, or Insufficient Evidence — with an explanation for each.</p>
+        </article>
+        <article class="card">
+          <h3>32 trusted domains</h3>
+          <p>University presses, national archives, journal databases, and established fact-checkers. <a href="/#sources">See the list</a>.</p>
+        </article>
+        <article class="card">
+          <h3>No captions? Use the title</h3>
+          <p>If a video has no transcript, type its title instead and the analysis runs on typical claims.</p>
+        </article>
+      </div>
+    </section>
+
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-base" style="border:0;padding-top:0">
+      <p>Claimifi.biz is an educational tool. Always cross-check important historical claims against primary sources and peer-reviewed scholarship. &nbsp;·&nbsp; <a href="/">Back to home</a></p>
+    </div>
+  </div>
+</footer>
+
+<script src="/app.js" defer></script>
+</body>
+</html>

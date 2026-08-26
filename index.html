@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#0b0f19">
+<meta name="theme-color" content="#0a0e18">
 
 <title>Claimifi.biz — Fact-Check History Claims in YouTube Videos</title>
 <meta name="description" content="Paste a YouTube history video and Claimifi.biz extracts every historical claim, then checks each one against 32 academic, archival, and fact-checking sources. Free, instant, source-cited.">
@@ -12,7 +12,6 @@
 <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1">
 <link rel="canonical" href="https://claimifi.biz/">
 
-<!-- Open Graph -->
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Claimifi.biz">
 <meta property="og:title" content="Claimifi.biz — Fact-Check History Claims in YouTube Videos">
@@ -24,7 +23,6 @@
 <meta property="og:image:alt" content="Claimifi.biz — fact-check history on YouTube">
 <meta property="og:locale" content="en_US">
 
-<!-- Twitter -->
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Claimifi.biz — Fact-Check History Claims in YouTube Videos">
 <meta name="twitter:description" content="Paste a YouTube history video. Get every historical claim checked against 32 academic, archival, and fact-checking sources.">
@@ -37,6 +35,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/styles.css">
 
 <script type="application/ld+json">
 {
@@ -66,419 +65,31 @@
       "description": "Fact-check historical claims made in YouTube videos."
     },
     {
+      "@type": "HowTo",
+      "@id": "https://claimifi.biz/#howto",
+      "name": "How to fact-check a YouTube history video",
+      "totalTime": "PT1M",
+      "step": [
+        { "@type": "HowToStep", "position": 1, "name": "Paste the video", "text": "Paste a YouTube link, or type the video's title if it has no captions." },
+        { "@type": "HowToStep", "position": 2, "name": "Run the analysis", "text": "Claimifi.biz reads the transcript and separates it into distinct historical claims." },
+        { "@type": "HowToStep", "position": 3, "name": "Read the verdicts", "text": "Each claim receives a verdict, an explanation, and the trusted domains that support it." }
+      ]
+    },
+    {
       "@type": "FAQPage",
       "@id": "https://claimifi.biz/#faq",
       "mainEntity": [
-        {
-          "@type": "Question",
-          "name": "How does Claimifi.biz fact-check YouTube history videos?",
-          "acceptedAnswer": { "@type": "Answer", "text": "Claimifi.biz retrieves the video's caption track, extracts each distinct historical claim, and evaluates every claim against a fixed list of academic, archival, and fact-checking domains. Each claim receives one of four verdicts along with an explanation and the sources consulted." }
-        },
-        {
-          "@type": "Question",
-          "name": "Which sources does Claimifi.biz use?",
-          "acceptedAnswer": { "@type": "Answer", "text": "Analysis is constrained to 32 domains covering historical associations, peer-reviewed journal databases, national archives, film and media archives, university presses, and established fact-checking organisations. The full list is published on the site." }
-        },
-        {
-          "@type": "Question",
-          "name": "Is Claimifi.biz free to use?",
-          "acceptedAnswer": { "@type": "Answer", "text": "Yes. Claimifi.biz is a free educational tool. A per-visitor rate limit applies so the service stays available to everyone." }
-        },
-        {
-          "@type": "Question",
-          "name": "Why did my YouTube link fail?",
-          "acceptedAnswer": { "@type": "Answer", "text": "The most common reason is that the video has no caption track, since there is no transcript to analyse. Private, deleted, and region-locked videos also cannot be retrieved. When that happens you can analyse the video's title instead." }
-        },
-        {
-          "@type": "Question",
-          "name": "Can I check a video without a transcript?",
-          "acceptedAnswer": { "@type": "Answer", "text": "Yes. Enter the video's title instead of its URL. The analysis then covers the historical claims a video with that title typically makes, rather than the specific wording of that video." }
-        },
-        {
-          "@type": "Question",
-          "name": "How accurate is AI fact-checking?",
-          "acceptedAnswer": { "@type": "Answer", "text": "Claimifi.biz is a research aid, not an authority. It is designed to surface claims worth checking and point you to the scholarship, but verdicts can be wrong or incomplete. Always confirm important claims against the primary sources cited." }
-        }
+        { "@type": "Question", "name": "How does Claimifi.biz fact-check YouTube history videos?", "acceptedAnswer": { "@type": "Answer", "text": "Claimifi.biz retrieves the video's caption track, extracts each distinct historical claim, and evaluates every claim against a fixed list of academic, archival, and fact-checking domains. Each claim receives one of four verdicts along with an explanation and the sources consulted." } },
+        { "@type": "Question", "name": "Which sources does Claimifi.biz use?", "acceptedAnswer": { "@type": "Answer", "text": "Analysis is constrained to 32 domains covering historical associations, peer-reviewed journal databases, national archives, film and media archives, university presses, and established fact-checking organisations. The full list is published on the site." } },
+        { "@type": "Question", "name": "Is Claimifi.biz free to use?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. Claimifi.biz is a free educational tool and requires no account. A per-visitor rate limit applies so the service stays available to everyone." } },
+        { "@type": "Question", "name": "Why did my YouTube link fail?", "acceptedAnswer": { "@type": "Answer", "text": "The most common reason is that the video has no caption track, since there is no transcript to analyse. Private, deleted, and region-locked videos also cannot be retrieved. When that happens you can analyse the video's title instead." } },
+        { "@type": "Question", "name": "Can I check a video without a transcript?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. Enter the video's title instead of its URL. The analysis then covers the historical claims a video with that title typically makes, rather than the specific wording of that video." } },
+        { "@type": "Question", "name": "How accurate is AI fact-checking?", "acceptedAnswer": { "@type": "Answer", "text": "Claimifi.biz is a research aid, not an authority. It is designed to surface claims worth checking and point you to the scholarship, but verdicts can be wrong or incomplete. Always confirm important claims against the primary sources cited." } }
       ]
     }
   ]
 }
 </script>
-
-<style>
-  :root {
-    --bg:            #0a0e18;
-    --bg-raised:     #101725;
-    --bg-card:       #131b2b;
-    --bg-inset:      #0d1421;
-    --border:        #232f45;
-    --border-strong: #33415c;
-    --text:          #f1f5f9;
-    --text-2:        #a9b6c9;
-    --text-3:        #6f7f96;
-    --accent:        #3ec6f5;
-    --accent-2:      #0ea5e9;
-    --accent-soft:   rgba(62, 198, 245, .12);
-    --ok:            #3ddb9f;
-    --warn:          #fbbf24;
-    --bad:           #fb7185;
-    --neutral:       #94a3b8;
-    --r-sm: 8px; --r: 12px; --r-lg: 18px; --r-xl: 24px;
-    --shadow:    0 2px 8px rgba(0,0,0,.3);
-    --shadow-lg: 0 18px 50px -12px rgba(0,0,0,.65);
-    --ring: 0 0 0 3px rgba(62,198,245,.3);
-    --maxw: 1080px;
-  }
-
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
-
-  body {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    background: var(--bg);
-    color: var(--text);
-    line-height: 1.65;
-    font-size: 16px;
-    -webkit-font-smoothing: antialiased;
-    overflow-x: hidden;
-  }
-
-  /* Ambient background */
-  body::before {
-    content: ''; position: fixed; inset: 0; z-index: 0; pointer-events: none;
-    background:
-      radial-gradient(900px 500px at 50% -100px, rgba(62,198,245,.10), transparent 70%),
-      linear-gradient(rgba(62,198,245,.022) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(62,198,245,.022) 1px, transparent 1px);
-    background-size: 100% 100%, 64px 64px, 64px 64px;
-  }
-
-  .wrap { position: relative; z-index: 1; max-width: var(--maxw); margin: 0 auto; padding: 0 24px; }
-
-  a { color: var(--accent); text-decoration: none; }
-  a:hover { text-decoration: underline; }
-  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 4px; }
-
-  .skip {
-    position: absolute; left: -9999px; top: 8px; z-index: 100;
-    background: var(--accent); color: #04121c; padding: 10px 18px;
-    border-radius: var(--r-sm); font-weight: 600;
-  }
-  .skip:focus { left: 24px; }
-
-  /* ---------- Header ---------- */
-  header {
-    position: sticky; top: 0; z-index: 50;
-    background: rgba(10,14,24,.82);
-    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
-    border-bottom: 1px solid var(--border);
-  }
-  .nav { display: flex; align-items: center; gap: 20px; height: 66px; }
-  .brand { display: flex; align-items: center; gap: 11px; color: inherit; flex-shrink: 0; }
-  .brand:hover { text-decoration: none; }
-  .brand-mark {
-    width: 34px; height: 34px; border-radius: 10px; flex-shrink: 0;
-    background: linear-gradient(140deg, var(--accent), var(--accent-2));
-    display: grid; place-items: center;
-    box-shadow: 0 0 22px rgba(62,198,245,.32);
-  }
-  .brand-mark svg { width: 19px; height: 19px; stroke: #04121c; }
-  .brand-name { font-size: 1.16rem; font-weight: 700; letter-spacing: -.025em; }
-  .brand-name span { color: var(--accent); }
-
-  .nav-links { display: flex; gap: 26px; margin-left: auto; }
-  .nav-links a { color: var(--text-2); font-size: .9rem; font-weight: 500; }
-  .nav-links a:hover { color: var(--text); text-decoration: none; }
-
-  .status {
-    display: inline-flex; align-items: center; gap: 7px;
-    font-size: .74rem; font-weight: 600; padding: 5px 11px;
-    border-radius: 999px; border: 1px solid var(--border-strong);
-    color: var(--text-3); white-space: nowrap; flex-shrink: 0;
-  }
-  .status .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-  .status[data-mode="live"] { color: var(--ok); border-color: rgba(61,219,159,.35); background: rgba(61,219,159,.08); }
-  .status[data-mode="live"] .dot { box-shadow: 0 0 0 3px rgba(61,219,159,.18); }
-  .status[data-mode="demo"] { color: var(--warn); border-color: rgba(251,191,36,.35); background: rgba(251,191,36,.08); }
-
-  /* ---------- Hero ---------- */
-  .hero { padding: 76px 0 40px; text-align: center; }
-  .eyebrow {
-    display: inline-flex; align-items: center; gap: 8px;
-    background: var(--accent-soft); border: 1px solid rgba(62,198,245,.24);
-    color: var(--accent); font-size: .78rem; font-weight: 600;
-    padding: 6px 15px; border-radius: 999px; margin-bottom: 26px;
-    letter-spacing: .01em;
-  }
-  h1 {
-    font-family: 'Instrument Serif', Georgia, serif;
-    font-weight: 400; letter-spacing: -.012em; line-height: 1.06;
-    font-size: clamp(2.7rem, 7.5vw, 4.6rem);
-    margin-bottom: 22px;
-  }
-  h1 em { font-style: italic; color: var(--accent); }
-  .lede {
-    color: var(--text-2); font-size: clamp(1.02rem, 2.2vw, 1.16rem);
-    max-width: 620px; margin: 0 auto;
-  }
-
-  /* ---------- Search ---------- */
-  .search {
-    background: var(--bg-card); border: 1px solid var(--border);
-    border-radius: var(--r-xl); padding: 12px;
-    box-shadow: var(--shadow-lg); margin: 40px auto 0; max-width: 760px;
-    transition: border-color .2s, box-shadow .2s;
-  }
-  .search:focus-within { border-color: rgba(62,198,245,.5); box-shadow: var(--shadow-lg), var(--ring); }
-  .search-row { display: flex; gap: 10px; align-items: center; }
-  .field { position: relative; flex: 1; display: flex; align-items: center; }
-  .field > svg {
-    position: absolute; left: 16px; width: 18px; height: 18px;
-    stroke: var(--text-3); pointer-events: none;
-  }
-  #videoInput {
-    width: 100%; background: var(--bg-inset);
-    border: 1px solid var(--border); border-radius: var(--r-lg);
-    padding: 15px 16px 15px 46px; font: inherit; font-size: 1rem;
-    color: var(--text); outline: none; transition: border-color .2s;
-  }
-  #videoInput::placeholder { color: var(--text-3); }
-  #videoInput:focus { border-color: var(--border-strong); }
-
-  .btn {
-    display: inline-flex; align-items: center; justify-content: center; gap: 9px;
-    font: inherit; font-size: .97rem; font-weight: 600; cursor: pointer;
-    border: none; border-radius: var(--r-lg); padding: 15px 26px;
-    background: linear-gradient(140deg, var(--accent), var(--accent-2));
-    color: #04121c; white-space: nowrap;
-    transition: transform .15s, box-shadow .15s, opacity .15s;
-  }
-  .btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 10px 26px -6px rgba(62,198,245,.5); }
-  .btn:active:not(:disabled) { transform: translateY(0); }
-  .btn:disabled { opacity: .55; cursor: not-allowed; }
-  .btn svg { width: 17px; height: 17px; stroke: currentColor; }
-
-  .examples { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 20px; }
-  .examples-label { color: var(--text-3); font-size: .82rem; align-self: center; margin-right: 2px; }
-  .chip {
-    background: var(--bg-raised); border: 1px solid var(--border);
-    color: var(--text-2); font: inherit; font-size: .82rem;
-    padding: 6px 13px; border-radius: 999px; cursor: pointer;
-    transition: border-color .18s, color .18s, background .18s;
-  }
-  .chip:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
-
-  .trust { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px 34px; margin-top: 34px; }
-  .trust div { display: flex; align-items: center; gap: 8px; color: var(--text-3); font-size: .85rem; }
-  .trust svg { width: 15px; height: 15px; stroke: var(--ok); flex-shrink: 0; }
-
-  /* ---------- Results ---------- */
-  #results { margin-top: 54px; scroll-margin-top: 86px; }
-  #results:empty { display: none; }
-
-  .panel {
-    background: var(--bg-card); border: 1px solid var(--border);
-    border-radius: var(--r-xl); overflow: hidden; box-shadow: var(--shadow-lg);
-  }
-  .panel-head {
-    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-    padding: 18px 24px; border-bottom: 1px solid var(--border); background: var(--bg-raised);
-  }
-  .panel-head h2 { font-size: 1.02rem; font-weight: 600; letter-spacing: -.01em; }
-  .panel-body { padding: 24px; }
-  .panel-body + .panel-body { border-top: 1px solid var(--border); }
-
-  .label {
-    font-size: .72rem; font-weight: 600; text-transform: uppercase;
-    letter-spacing: .09em; color: var(--text-3); margin-bottom: 12px;
-  }
-
-  .pill {
-    font-size: .72rem; font-weight: 600; padding: 4px 11px; border-radius: 999px;
-    text-transform: uppercase; letter-spacing: .05em;
-  }
-  .pill.busy  { background: rgba(251,191,36,.14); color: var(--warn); }
-  .pill.done  { background: rgba(61,219,159,.14); color: var(--ok); }
-  .pill.demo  { background: var(--accent-soft); color: var(--accent); }
-  .pill.error { background: rgba(251,113,133,.14); color: var(--bad); }
-
-  .ghost {
-    margin-left: auto; background: transparent; border: 1px solid var(--border-strong);
-    color: var(--text-2); font: inherit; font-size: .82rem; font-weight: 500;
-    padding: 7px 14px; border-radius: var(--r-sm); cursor: pointer;
-    display: inline-flex; align-items: center; gap: 7px; transition: all .18s;
-  }
-  .ghost:hover { border-color: var(--accent); color: var(--accent); }
-  .ghost svg { width: 14px; height: 14px; stroke: currentColor; }
-
-  /* Verdict tally */
-  .tally { display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: 12px; }
-  .tally-item {
-    background: var(--bg-inset); border: 1px solid var(--border);
-    border-radius: var(--r); padding: 14px 16px; border-left-width: 3px;
-  }
-  .tally-item .n { font-size: 1.75rem; font-weight: 700; line-height: 1.1; letter-spacing: -.03em; }
-  .tally-item .t { font-size: .76rem; color: var(--text-3); font-weight: 500; margin-top: 2px; }
-  .tally-item[data-v="supported"]   { border-left-color: var(--ok); }
-  .tally-item[data-v="supported"] .n   { color: var(--ok); }
-  .tally-item[data-v="mixed"]       { border-left-color: var(--warn); }
-  .tally-item[data-v="mixed"] .n       { color: var(--warn); }
-  .tally-item[data-v="unsupported"] { border-left-color: var(--bad); }
-  .tally-item[data-v="unsupported"] .n { color: var(--bad); }
-  .tally-item[data-v="insufficient"]{ border-left-color: var(--neutral); }
-  .tally-item[data-v="insufficient"] .n{ color: var(--neutral); }
-
-  /* Claim cards */
-  .claim {
-    background: var(--bg-inset); border: 1px solid var(--border);
-    border-left: 3px solid var(--neutral); border-radius: var(--r);
-    padding: 18px 20px; margin-bottom: 12px;
-  }
-  .claim:last-child { margin-bottom: 0; }
-  .claim[data-v="supported"]   { border-left-color: var(--ok); }
-  .claim[data-v="mixed"]       { border-left-color: var(--warn); }
-  .claim[data-v="unsupported"] { border-left-color: var(--bad); }
-
-  .claim-top { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 10px; }
-  .claim-n {
-    flex-shrink: 0; width: 24px; height: 24px; border-radius: 7px;
-    background: var(--bg-raised); border: 1px solid var(--border);
-    display: grid; place-items: center;
-    font-size: .74rem; font-weight: 600; color: var(--text-3);
-  }
-  .claim-text { font-size: 1rem; font-weight: 500; flex: 1; }
-
-  .verdict {
-    display: inline-flex; align-items: center; gap: 6px;
-    font-size: .75rem; font-weight: 600; padding: 3px 11px;
-    border-radius: 999px; margin-bottom: 10px;
-  }
-  .verdict::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-  .verdict[data-v="supported"]    { background: rgba(61,219,159,.13); color: var(--ok); }
-  .verdict[data-v="mixed"]        { background: rgba(251,191,36,.13); color: var(--warn); }
-  .verdict[data-v="unsupported"]  { background: rgba(251,113,133,.13); color: var(--bad); }
-  .verdict[data-v="insufficient"] { background: rgba(148,163,184,.13); color: var(--neutral); }
-
-  .claim-why { color: var(--text-2); font-size: .93rem; }
-  .tags { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
-  .tag {
-    background: var(--bg-raised); border: 1px solid var(--border);
-    color: var(--text-2); font-size: .75rem; padding: 4px 10px;
-    border-radius: var(--r-sm); transition: all .18s;
-  }
-  a.tag:hover { border-color: var(--accent); color: var(--accent); text-decoration: none; }
-
-  /* Loading */
-  .loading { padding: 52px 24px; text-align: center; }
-  .spinner {
-    width: 38px; height: 38px; margin: 0 auto 20px;
-    border: 3px solid var(--border); border-top-color: var(--accent);
-    border-radius: 50%; animation: spin .8s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  .steps { display: inline-flex; flex-direction: column; gap: 9px; text-align: left; margin-top: 6px; }
-  .step { display: flex; align-items: center; gap: 11px; font-size: .9rem; color: var(--text-3); transition: color .3s; }
-  .step .box {
-    width: 17px; height: 17px; border-radius: 50%; flex-shrink: 0;
-    border: 2px solid var(--border-strong); transition: all .3s;
-  }
-  .step.on { color: var(--text); }
-  .step.on .box { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-  .step.ok .box {
-    border-color: var(--ok); background: var(--ok);
-    box-shadow: none;
-  }
-  .step.ok { color: var(--text-2); }
-  .elapsed { margin-top: 18px; font-size: .8rem; color: var(--text-3); font-variant-numeric: tabular-nums; }
-
-  /* Sections */
-  section { padding: 76px 0; }
-  .sec-head { text-align: center; max-width: 620px; margin: 0 auto 44px; }
-  h2.sec-title {
-    font-family: 'Instrument Serif', Georgia, serif; font-weight: 400;
-    font-size: clamp(1.9rem, 4.2vw, 2.5rem); letter-spacing: -.01em;
-    line-height: 1.15; margin-bottom: 12px;
-  }
-  .sec-head p { color: var(--text-2); font-size: 1rem; }
-
-  .steps-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px; }
-  .step-card {
-    background: var(--bg-card); border: 1px solid var(--border);
-    border-radius: var(--r-lg); padding: 26px 24px;
-  }
-  .step-num {
-    width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center;
-    background: var(--accent-soft); border: 1px solid rgba(62,198,245,.25);
-    color: var(--accent); font-weight: 700; font-size: .88rem; margin-bottom: 16px;
-  }
-  .step-card h3 { font-size: 1.03rem; font-weight: 600; margin-bottom: 8px; letter-spacing: -.01em; }
-  .step-card p { color: var(--text-2); font-size: .92rem; }
-
-  .src-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; }
-  .src-group {
-    background: var(--bg-card); border: 1px solid var(--border);
-    border-radius: var(--r-lg); padding: 20px 22px;
-  }
-  .src-group h3 {
-    font-size: .78rem; font-weight: 600; text-transform: uppercase;
-    letter-spacing: .08em; color: var(--accent); margin-bottom: 13px;
-  }
-  .src-group ul { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; }
-  .src-group li {
-    font-size: .78rem; color: var(--text-2); background: var(--bg-inset);
-    border: 1px solid var(--border); padding: 4px 9px; border-radius: 6px;
-  }
-
-  details.faq {
-    background: var(--bg-card); border: 1px solid var(--border);
-    border-radius: var(--r-lg); margin-bottom: 11px; overflow: hidden;
-  }
-  details.faq summary {
-    padding: 18px 22px; cursor: pointer; font-weight: 500; font-size: .98rem;
-    list-style: none; display: flex; align-items: center; justify-content: space-between; gap: 16px;
-  }
-  details.faq summary::-webkit-details-marker { display: none; }
-  details.faq summary::after {
-    content: '+'; color: var(--accent); font-size: 1.3rem; flex-shrink: 0;
-    line-height: 1; transition: transform .25s;
-  }
-  details.faq[open] summary::after { transform: rotate(45deg); }
-  details.faq summary:hover { color: var(--accent); }
-  details.faq .a { padding: 0 22px 20px; color: var(--text-2); font-size: .93rem; }
-
-  .cta {
-    background: linear-gradient(140deg, var(--bg-card), var(--bg-raised));
-    border: 1px solid var(--border); border-radius: var(--r-xl);
-    padding: 44px 32px; text-align: center;
-  }
-  .cta h2 { font-family: 'Instrument Serif', Georgia, serif; font-weight: 400; font-size: clamp(1.7rem, 4vw, 2.2rem); margin-bottom: 10px; }
-  .cta p { color: var(--text-2); margin-bottom: 24px; }
-
-  footer { border-top: 1px solid var(--border); padding: 40px 0; margin-top: 40px; }
-  .foot { display: flex; flex-wrap: wrap; gap: 18px; align-items: center; justify-content: space-between; }
-  .foot p { color: var(--text-3); font-size: .84rem; max-width: 560px; }
-  .foot nav { display: flex; gap: 20px; }
-  .foot nav a { color: var(--text-3); font-size: .84rem; }
-  .foot nav a:hover { color: var(--accent); }
-
-  .sr { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
-
-  @media (max-width: 780px) { .nav-links { display: none; } }
-  @media (max-width: 620px) {
-    .wrap { padding: 0 18px; }
-    .hero { padding: 52px 0 32px; }
-    .search-row { flex-direction: column; }
-    .btn { width: 100%; }
-    .panel-body, .panel-head { padding: 18px; }
-    section { padding: 56px 0; }
-    .ghost { margin-left: 0; }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
-    html { scroll-behavior: auto; }
-  }
-</style>
 </head>
 <body>
 
@@ -494,16 +105,21 @@
     </a>
     <nav class="nav-links" aria-label="Primary">
       <a href="#how">How it works</a>
+      <a href="#example">Example</a>
       <a href="#sources">Sources</a>
       <a href="#faq">FAQ</a>
     </nav>
-    <span class="status" id="status" role="status"><span class="dot" aria-hidden="true"></span><span id="statusText">Checking…</span></span>
+    <div class="nav-right">
+      <span class="status" id="status" role="status"><span class="dot" aria-hidden="true"></span><span id="statusText">Checking…</span></span>
+      <a class="btn-sm" href="/app">Open the app</a>
+    </div>
   </div>
 </header>
 
 <main id="main">
   <div class="wrap">
 
+    <!-- ================= Hero ================= -->
     <div class="hero">
       <p class="eyebrow">Academic &middot; Archival &middot; Fact-checked sources only</p>
       <h1>Fact-check history<br><em>on YouTube.</em></h1>
@@ -539,23 +155,100 @@
 
     <div id="results" aria-live="polite" aria-atomic="false"></div>
 
+    <!-- ================= Stats ================= -->
+    <div class="stats">
+      <div class="stat"><div class="v">32</div><div class="k">Vetted sources</div></div>
+      <div class="stat"><div class="v">4</div><div class="k">Verdict levels</div></div>
+      <div class="stat"><div class="v">0</div><div class="k">Accounts needed</div></div>
+      <div class="stat"><div class="v">~60s</div><div class="k">Per analysis</div></div>
+    </div>
+
+    <!-- ================= Problem ================= -->
+    <section id="why">
+      <div class="sec-head">
+        <h2 class="sec-title">History is the most watched<br>and least checked</h2>
+        <p>Documentary-style history is one of YouTube's biggest categories. Almost none of it carries citations.</p>
+      </div>
+      <div class="grid-3">
+        <article class="card">
+          <div class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9 2 18a2 2 0 0 0 1.7 3h16.6a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></svg></div>
+          <h3>Confident narration isn't evidence</h3>
+          <p>A calm voice over sweeping music reads as authority. Nothing about the format tells you whether a date, a motive, or a death toll is contested.</p>
+        </article>
+        <article class="card">
+          <div class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg></div>
+          <h3>Complexity gets flattened</h3>
+          <p>Centuries of overlapping causes get compressed into one tidy story. What historians actively argue about arrives as settled fact.</p>
+        </article>
+        <article class="card">
+          <div class="card-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></div>
+          <h3>Checking it is slow</h3>
+          <p>Verifying one claim properly means finding the scholarship and reading it. Nobody does that for a video they watched over lunch.</p>
+        </article>
+      </div>
+    </section>
+
+    <!-- ================= Sample output ================= -->
+    <section id="example">
+      <div class="sec-head">
+        <h2 class="sec-title">What you get back</h2>
+        <p>Every claim separated out, graded, explained, and linked to the domains that back it.</p>
+      </div>
+      <div class="sample">
+        <div class="sample-frame">
+          <div class="sample-bar" aria-hidden="true"><i></i><i></i><i></i><span>Sample analysis</span></div>
+          <div class="panel-body">
+            <div class="label">Verdict breakdown</div>
+            <div class="tally">
+              <div class="tally-item" data-v="supported"><div class="n">4</div><div class="t">Supported</div></div>
+              <div class="tally-item" data-v="mixed"><div class="n">2</div><div class="t">Mixed</div></div>
+              <div class="tally-item" data-v="unsupported"><div class="n">1</div><div class="t">Unsupported</div></div>
+              <div class="tally-item" data-v="insufficient"><div class="n">1</div><div class="t">Insufficient</div></div>
+            </div>
+          </div>
+          <div class="panel-body">
+            <div class="label">2 of 8 claims checked</div>
+            <div class="claim" data-v="unsupported">
+              <div class="claim-top">
+                <span class="claim-n">1</span>
+                <span class="claim-text">Rome fell in a single year when the city was sacked in 476 AD.</span>
+              </div>
+              <span class="verdict" data-v="unsupported">Unsupported</span>
+              <div class="claim-why">476 marks the deposition of Romulus Augustulus, not a collapse. The Eastern Empire continued for another thousand years, and scholarship treats the western decline as a gradual transformation across the fourth to sixth centuries.</div>
+              <div class="tags"><span class="tag">cambridge.org</span><span class="tag">jstor.org</span><span class="tag">press.princeton.edu</span></div>
+            </div>
+            <div class="claim" data-v="mixed">
+              <div class="claim-top">
+                <span class="claim-n">2</span>
+                <span class="claim-text">Lead pipes poisoned the Roman population and caused the decline.</span>
+              </div>
+              <span class="verdict" data-v="mixed">Mixed</span>
+              <div class="claim-why">Lead exposure in Roman water systems is well documented, but the causal leap to imperial collapse is not supported. Mineral scaling inside the pipes limited leaching, and the effect sits far below what a civilisational explanation would require.</div>
+              <div class="tags"><span class="tag">academic.oup.com</span><span class="tag">cambridge.org</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= How it works ================= -->
     <section id="how">
       <div class="sec-head">
         <h2 class="sec-title">How it works</h2>
         <p>Three steps between a video and a sourced verdict on everything it claims.</p>
       </div>
-      <div class="steps-grid">
-        <article class="step-card">
+      <div class="grid-3">
+        <article class="card">
           <div class="step-num" aria-hidden="true">1</div>
           <h3>Read the transcript</h3>
           <p>Claimifi.biz retrieves the video's caption track and reads it end to end — no watching, no skimming, no relying on the title.</p>
         </article>
-        <article class="step-card">
+        <article class="card">
           <div class="step-num" aria-hidden="true">2</div>
           <h3>Isolate each claim</h3>
           <p>Names, dates, causes, outcomes, and casualty figures are separated into distinct, checkable statements instead of one vague impression.</p>
         </article>
-        <article class="step-card">
+        <article class="card">
           <div class="step-num" aria-hidden="true">3</div>
           <h3>Check and cite</h3>
           <p>Every claim gets one of four verdicts, an explanation of the scholarly position, and the specific domains that support it.</p>
@@ -563,6 +256,37 @@
       </div>
     </section>
 
+    <!-- ================= Honest boundaries ================= -->
+    <section id="scope">
+      <div class="sec-head">
+        <h2 class="sec-title">What this is, and isn't</h2>
+        <p>A fact-checker that overstates itself is just another confident voice.</p>
+      </div>
+      <div class="compare">
+        <div class="compare-col yes">
+          <h3><svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>What it does well</h3>
+          <ul>
+            <li>Surfaces the specific claims in a video that are worth checking</li>
+            <li>Flags where popular narratives diverge from current scholarship</li>
+            <li>Points you at the domains where the real answer lives</li>
+            <li>Separates contested interpretation from settled record</li>
+            <li>Turns an hour of manual checking into about a minute</li>
+          </ul>
+        </div>
+        <div class="compare-col no">
+          <h3><svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>What it can't do</h3>
+          <ul>
+            <li>Replace reading the actual scholarship on a question</li>
+            <li>Settle debates historians themselves have not settled</li>
+            <li>Guarantee a verdict is right — it can be wrong or incomplete</li>
+            <li>Analyse videos with no captions from their content</li>
+            <li>Serve as a citation in academic work</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= Sources ================= -->
     <section id="sources">
       <div class="sec-head">
         <h2 class="sec-title">The 32 trusted sources</h2>
@@ -596,359 +320,89 @@
       </div>
     </section>
 
+    <!-- ================= FAQ ================= -->
     <section id="faq">
       <div class="sec-head">
         <h2 class="sec-title">Questions</h2>
         <p>What Claimifi.biz does, what it doesn't, and where it falls short.</p>
       </div>
-      <details class="faq">
-        <summary>How does Claimifi.biz fact-check YouTube history videos?</summary>
-        <div class="a">It retrieves the video's caption track, extracts each distinct historical claim, and evaluates every claim against a fixed list of academic, archival, and fact-checking domains. Each claim receives one of four verdicts along with an explanation and the sources consulted.</div>
-      </details>
-      <details class="faq">
-        <summary>Which sources does Claimifi.biz use?</summary>
-        <div class="a">Analysis is constrained to the 32 domains listed above — historical associations, peer-reviewed journal databases, national archives, film and media archives, university presses, and established fact-checking organisations.</div>
-      </details>
-      <details class="faq">
-        <summary>Is Claimifi.biz free to use?</summary>
-        <div class="a">Yes, and there is no sign-up. A per-visitor rate limit applies so the service stays available to everyone.</div>
-      </details>
-      <details class="faq">
-        <summary>Why did my YouTube link fail?</summary>
-        <div class="a">Most often the video has no caption track, so there is no transcript to analyse. Private, deleted, and region-locked videos also cannot be retrieved. When that happens, enter the video's title instead.</div>
-      </details>
-      <details class="faq">
-        <summary>Can I check a video without a transcript?</summary>
-        <div class="a">Yes. Enter the title instead of the URL. The analysis then covers the historical claims a video with that title typically makes, rather than the specific wording of that video.</div>
-      </details>
-      <details class="faq">
-        <summary>How accurate is AI fact-checking?</summary>
-        <div class="a">Claimifi.biz is a research aid, not an authority. It is built to surface claims worth checking and point you at the scholarship, but verdicts can be wrong or incomplete. Always confirm important claims against the primary sources cited.</div>
-      </details>
+      <div class="wrap-narrow" style="padding:0;margin:0 auto">
+        <details class="faq">
+          <summary>How does Claimifi.biz fact-check YouTube history videos?</summary>
+          <div class="a">It retrieves the video's caption track, extracts each distinct historical claim, and evaluates every claim against a fixed list of academic, archival, and fact-checking domains. Each claim receives one of four verdicts along with an explanation and the sources consulted.</div>
+        </details>
+        <details class="faq">
+          <summary>Which sources does Claimifi.biz use?</summary>
+          <div class="a">Analysis is constrained to the 32 domains listed above — historical associations, peer-reviewed journal databases, national archives, film and media archives, university presses, and established fact-checking organisations.</div>
+        </details>
+        <details class="faq">
+          <summary>Is Claimifi.biz free to use?</summary>
+          <div class="a">Yes, and there is no sign-up. A per-visitor rate limit applies so the service stays available to everyone.</div>
+        </details>
+        <details class="faq">
+          <summary>Why did my YouTube link fail?</summary>
+          <div class="a">Most often the video has no caption track, so there is no transcript to analyse. Private, deleted, and region-locked videos also cannot be retrieved. When that happens, enter the video's title instead.</div>
+        </details>
+        <details class="faq">
+          <summary>Can I check a video without a transcript?</summary>
+          <div class="a">Yes. Enter the title instead of the URL. The analysis then covers the historical claims a video with that title typically makes, rather than the specific wording of that video.</div>
+        </details>
+        <details class="faq">
+          <summary>How accurate is AI fact-checking?</summary>
+          <div class="a">Claimifi.biz is a research aid, not an authority. It is built to surface claims worth checking and point you at the scholarship, but verdicts can be wrong or incomplete. Always confirm important claims against the primary sources cited.</div>
+        </details>
+      </div>
     </section>
 
+    <!-- ================= CTA ================= -->
     <div class="cta">
       <h2>Check a video now</h2>
-      <p>Free, no account, results in under a minute.</p>
-      <button class="btn" type="button" id="ctaBtn">
+      <p>Free, no account, results in about a minute.</p>
+      <a class="btn" href="/app">
         <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
-        Start fact-checking
-      </button>
+        Open the analyzer
+      </a>
     </div>
 
   </div>
 </main>
 
 <footer>
-  <div class="wrap foot">
-    <p><strong>Claimifi.biz</strong> is an educational tool. Always cross-check important historical claims against primary sources and peer-reviewed scholarship.</p>
-    <nav aria-label="Footer">
-      <a href="#how">How it works</a>
-      <a href="#sources">Sources</a>
-      <a href="#faq">FAQ</a>
-    </nav>
+  <div class="wrap">
+    <div class="foot-grid">
+      <div class="foot-about">
+        <a href="/" class="brand" aria-label="Claimifi.biz home">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+          </span>
+          <span class="brand-name">Claimifi<span>.biz</span></span>
+        </a>
+        <p>An educational tool for checking historical claims made in YouTube videos against academic and archival scholarship.</p>
+      </div>
+      <div class="foot-col">
+        <h4>Product</h4>
+        <ul>
+          <li><a href="/app">Analyzer</a></li>
+          <li><a href="#how">How it works</a></li>
+          <li><a href="#example">Example output</a></li>
+          <li><a href="#scope">Scope &amp; limits</a></li>
+        </ul>
+      </div>
+      <div class="foot-col">
+        <h4>Reference</h4>
+        <ul>
+          <li><a href="#sources">Trusted sources</a></li>
+          <li><a href="#faq">FAQ</a></li>
+          <li><a href="#why">Why it matters</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="foot-base">
+      <p>Always cross-check important historical claims against primary sources and peer-reviewed scholarship. Verdicts are generated automatically and can be wrong.</p>
+    </div>
   </div>
 </footer>
 
-<script>
-(function () {
-  'use strict';
-
-  // The server allows up to ~120s for Grok plus transcript time. The client budget
-  // must exceed it, or real results get discarded moments before they arrive.
-  var REQUEST_TIMEOUT_MS = 180000;
-
-  var $ = function (id) { return document.getElementById(id); };
-  var input = $('videoInput');
-  var results = $('results');
-  var btn = $('analyzeBtn');
-
-  function esc(s) {
-    return String(s == null ? '' : s)
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-  }
-
-  function verdictKey(v) {
-    var s = String(v || '').toLowerCase();
-    if (s.indexOf('unsupported') > -1) return 'unsupported';
-    if (s.indexOf('supported') > -1) return 'supported';
-    if (s.indexOf('mixed') > -1) return 'mixed';
-    return 'insufficient';
-  }
-
-  /* ---------- Rendering ---------- */
-
-  function shell(title, pillClass, pillText, body, extra) {
-    results.innerHTML =
-      '<div class="panel">' +
-        '<div class="panel-head">' +
-          '<h2>' + esc(title) + '</h2>' +
-          '<span class="pill ' + pillClass + '">' + esc(pillText) + '</span>' +
-          (extra || '') +
-        '</div>' + body +
-      '</div>';
-  }
-
-  function renderLoading() {
-    shell('Analysis', 'busy', 'Working',
-      '<div class="loading">' +
-        '<div class="spinner" role="presentation"></div>' +
-        '<div class="steps">' +
-          '<div class="step" id="s0"><span class="box"></span>Fetching the transcript</div>' +
-          '<div class="step" id="s1"><span class="box"></span>Extracting historical claims</div>' +
-          '<div class="step" id="s2"><span class="box"></span>Checking against trusted sources</div>' +
-          '<div class="step" id="s3"><span class="box"></span>Writing sourced verdicts</div>' +
-        '</div>' +
-        '<div class="elapsed" id="elapsed">0s elapsed</div>' +
-      '</div>');
-  }
-
-  function renderError(msg, retryable) {
-    shell('Analysis', 'error', 'Error',
-      '<div class="panel-body">' +
-        '<div class="label">Could not complete the analysis</div>' +
-        '<p style="color:var(--text-2)">' + esc(msg) + '</p>' +
-        (retryable ? '<button class="ghost" type="button" id="retryBtn" style="margin-top:16px;margin-left:0">Try again</button>' : '') +
-      '</div>');
-    var r = $('retryBtn');
-    if (r) r.addEventListener('click', run);
-  }
-
-  function renderAnalysis(data, mode) {
-    var claims = Array.isArray(data.claims) ? data.claims : [];
-
-    var counts = { supported: 0, mixed: 0, unsupported: 0, insufficient: 0 };
-    claims.forEach(function (c) { counts[verdictKey(c.verdict)]++; });
-
-    var tallyDefs = [
-      ['supported', 'Supported'], ['mixed', 'Mixed'],
-      ['unsupported', 'Unsupported'], ['insufficient', 'Insufficient']
-    ];
-    var tally = tallyDefs.map(function (d) {
-      return '<div class="tally-item" data-v="' + d[0] + '">' +
-               '<div class="n">' + counts[d[0]] + '</div>' +
-               '<div class="t">' + d[1] + '</div>' +
-             '</div>';
-    }).join('');
-
-    var claimsHtml = claims.map(function (c, i) {
-      var k = verdictKey(c.verdict);
-      var srcs = (Array.isArray(c.sources) ? c.sources : []).map(function (s) {
-        return '<a class="tag" href="https://' + esc(s) + '" target="_blank" rel="noopener nofollow">' + esc(s) + '</a>';
-      }).join('');
-      return '<div class="claim" data-v="' + k + '">' +
-               '<div class="claim-top">' +
-                 '<span class="claim-n">' + (i + 1) + '</span>' +
-                 '<span class="claim-text">' + esc(c.claim) + '</span>' +
-               '</div>' +
-               '<span class="verdict" data-v="' + k + '">' + esc(c.verdict) + '</span>' +
-               '<div class="claim-why">' + esc(c.explanation) + '</div>' +
-               (srcs ? '<div class="tags">' + srcs + '</div>' : '') +
-             '</div>';
-    }).join('');
-
-    var used = (Array.isArray(data.sources_used) ? data.sources_used : []).map(function (s) {
-      return '<a class="tag" href="https://' + esc(s) + '" target="_blank" rel="noopener nofollow">' + esc(s) + '</a>';
-    }).join('');
-
-    var pill = mode === 'demo' ? ['demo', 'Demo'] : ['done', 'Complete'];
-
-    shell('Analysis', pill[0], pill[1],
-      '<div class="panel-body">' +
-        '<div class="label">Video</div>' +
-        '<p style="font-weight:500">' + esc(data.video_title || 'Unknown') + '</p>' +
-        (data.video_id && data.video_id !== 'demo'
-          ? '<p style="font-size:.82rem;color:var(--text-3);margin-top:4px">ID: ' + esc(data.video_id) + '</p>' : '') +
-      '</div>' +
-      '<div class="panel-body">' +
-        '<div class="label">Verdict breakdown</div>' +
-        '<div class="tally">' + tally + '</div>' +
-      '</div>' +
-      '<div class="panel-body">' +
-        '<div class="label">' + claims.length + ' claim' + (claims.length === 1 ? '' : 's') + ' checked</div>' +
-        (claimsHtml || '<p style="color:var(--text-2)">No distinct claims were extracted from this video.</p>') +
-      '</div>' +
-      '<div class="panel-body">' +
-        '<div class="label">Overall assessment</div>' +
-        '<p style="color:var(--text-2)">' + esc(data.overall_assessment) + '</p>' +
-      '</div>' +
-      '<div class="panel-body">' +
-        '<div class="label">Sources consulted</div>' +
-        '<div class="tags">' + (used || '<span style="color:var(--text-3)">None reported</span>') + '</div>' +
-        '<p style="font-size:.8rem;color:var(--text-3);margin-top:16px">' + esc(data.note || '') + '</p>' +
-      '</div>',
-      '<button class="ghost" type="button" id="copyBtn">' +
-        '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>' +
-        'Copy report</button>');
-
-    var copyBtn = $('copyBtn');
-    if (copyBtn) {
-      copyBtn.addEventListener('click', function () {
-        var lines = ['Claimifi.biz — ' + (data.video_title || ''), ''];
-        claims.forEach(function (c, i) {
-          lines.push((i + 1) + '. ' + c.claim);
-          lines.push('   Verdict: ' + c.verdict);
-          lines.push('   ' + c.explanation);
-          if (c.sources && c.sources.length) lines.push('   Sources: ' + c.sources.join(', '));
-          lines.push('');
-        });
-        lines.push('Overall: ' + data.overall_assessment);
-        var text = lines.join('\n');
-        var done = function () {
-          copyBtn.innerHTML = 'Copied';
-          setTimeout(function () { copyBtn.textContent = 'Copy report'; }, 1800);
-        };
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(text).then(done, function () {});
-        }
-      });
-    }
-  }
-
-  /* ---------- Demo fallback ---------- */
-
-  function demoData(q) {
-    var isUrl = /youtube\.com|youtu\.be/.test(q);
-    return {
-      video_title: isUrl ? 'YouTube video (demo)' : '"' + q + '"',
-      video_id: isUrl ? 'demo' : null,
-      claims: [
-        {
-          claim: 'The video presents a single chronological sequence of events as settled fact.',
-          verdict: 'Mixed',
-          explanation: 'Popular history videos tend to compress complex timelines. Scholarship indexed on cambridge.org and historians.org generally shows more overlapping causes and regional variation than one linear narrative allows.',
-          sources: ['cambridge.org', 'historians.org', 'jstor.org']
-        },
-        {
-          claim: 'Key figures are given clear motives that fully explain the outcome.',
-          verdict: 'Supported',
-          explanation: 'Primary documents held at archives.gov and monographs from major university presses do record the stated motives of prominent actors, though historians continue to debate how decisive those motives actually were.',
-          sources: ['archives.gov', 'hup.harvard.edu', 'yalebooks.yale.edu']
-        },
-        {
-          claim: 'A precise casualty figure is asserted for the event.',
-          verdict: 'Insufficient Evidence',
-          explanation: 'Exact numbers for ancient and early-modern events are rarely recoverable with confidence. Collections at loc.gov and journals on academic.oup.com typically present ranges and note the limits of surviving evidence.',
-          sources: ['loc.gov', 'academic.oup.com', 'jstor.org']
-        }
-      ],
-      overall_assessment: 'This is a sample analysis generated in your browser. In live mode Claimifi.biz reads the real transcript, identifies the actual claims, and checks each one against the 32 trusted sources. The structure shown here matches what the live version returns.',
-      sources_used: ['historians.org', 'cambridge.org', 'archives.gov', 'loc.gov', 'jstor.org', 'hup.harvard.edu'],
-      note: 'Demo mode — no analysis was performed on a real transcript.'
-    };
-  }
-
-  /* ---------- Service status ---------- */
-
-  function setStatus(mode, text) {
-    var el = $('status');
-    el.setAttribute('data-mode', mode);
-    $('statusText').textContent = text;
-  }
-
-  fetch('/api/config', { cache: 'no-store' })
-    .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
-    .then(function (cfg) {
-      setStatus(cfg.live ? 'live' : 'demo', cfg.live ? 'Live' : 'Demo mode');
-    })
-    .catch(function () { setStatus('demo', 'Demo mode'); });
-
-  /* ---------- Run ---------- */
-
-  var running = false;
-
-  function run() {
-    if (running) return;
-    var q = input.value.trim();
-    if (!q) { input.focus(); return; }
-
-    running = true;
-    btn.disabled = true;
-    renderLoading();
-    results.scrollIntoView({ block: 'start' });
-
-    // Advance the visible stage list on a rough schedule. These are progress
-    // affordances, not real server milestones.
-    var stageAt = [0, 6000, 14000, 26000];
-    var timers = stageAt.map(function (ms, i) {
-      return setTimeout(function () {
-        if (i > 0) { var p = $('s' + (i - 1)); if (p) { p.classList.remove('on'); p.classList.add('ok'); } }
-        var el = $('s' + i); if (el) el.classList.add('on');
-      }, ms);
-    });
-
-    var t0 = Date.now();
-    var tick = setInterval(function () {
-      var el = $('elapsed');
-      if (el) el.textContent = Math.round((Date.now() - t0) / 1000) + 's elapsed';
-    }, 1000);
-
-    var cleanup = function () {
-      running = false;
-      btn.disabled = false;
-      timers.forEach(clearTimeout);
-      clearInterval(tick);
-    };
-
-    var ctrl = new AbortController();
-    var killer = setTimeout(function () { ctrl.abort(); }, REQUEST_TIMEOUT_MS);
-
-    var isUrl = /youtube\.com|youtu\.be/.test(q);
-    var body = isUrl ? { url: q } : { title: q };
-
-    fetch('/api/analyze', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: ctrl.signal
-    })
-    .then(function (res) {
-      clearTimeout(killer);
-      if (res.ok) {
-        return res.json().then(function (d) {
-          setStatus('live', 'Live');
-          renderAnalysis(d, 'live');
-        });
-      }
-      return res.json().catch(function () { return {}; }).then(function (err) {
-        // 503 means the server is healthy but has no Grok key configured. That is
-        // the one case where showing the sample analysis is honest.
-        if (res.status === 503) {
-          setStatus('demo', 'Demo mode');
-          renderAnalysis(demoData(q), 'demo');
-          return;
-        }
-        var msg = typeof err.detail === 'string' ? err.detail
-                : 'The server returned an error (' + res.status + ').';
-        renderError(msg, res.status >= 500 || res.status === 429);
-      });
-    })
-    .catch(function (e) {
-      clearTimeout(killer);
-      if (e && e.name === 'AbortError') {
-        renderError('The analysis ran past three minutes and was stopped. Try a shorter video.', true);
-      } else {
-        // Genuine network failure: offline, or the server is unreachable.
-        setStatus('demo', 'Demo mode');
-        renderAnalysis(demoData(q), 'demo');
-      }
-    })
-    .then(cleanup, cleanup);
-  }
-
-  btn.addEventListener('click', run);
-  input.addEventListener('keydown', function (e) { if (e.key === 'Enter') run(); });
-
-  Array.prototype.forEach.call(document.querySelectorAll('.chip'), function (c) {
-    c.addEventListener('click', function () { input.value = c.textContent; run(); });
-  });
-
-  $('ctaBtn').addEventListener('click', function () {
-    window.scrollTo({ top: 0 });
-    input.focus();
-  });
-})();
-</script>
+<script src="/app.js" defer></script>
 </body>
 </html>

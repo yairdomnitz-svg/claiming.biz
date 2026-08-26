@@ -514,14 +514,7 @@ def _normalize_claims(analysis: Dict[str, Any]) -> List[Claim]:
 # ---------------------------------------------------------------------------
 @app.get("/", include_in_schema=False)
 async def serve_frontend():
-    index = FRONTEND_DIR / "index.html"
-    if not index.exists():
-        raise HTTPException(status_code=500, detail="index.html is missing from the deployment.")
-    return FileResponse(
-        index,
-        media_type="text/html",
-        headers={"Cache-Control": "no-cache, must-revalidate"},
-    )
+    return _serve_page("index.html")
 
 
 # Files served verbatim from the repo root, mapped to their content type. Anything
@@ -530,8 +523,31 @@ STATIC_FILES = {
     "favicon.svg": "image/svg+xml",
     "apple-touch-icon.png": "image/png",
     "og-image.png": "image/png",
+    "styles.css": "text/css",
+    "app.js": "application/javascript",
     GOOGLE_VERIFICATION_FILE: "text/html",
 }
+
+# CSS and JS ship with every deploy and must never be served stale, so they
+# revalidate on each request. FileResponse sends an ETag, so an unchanged file
+# still costs only a 304. Images are content-stable and cache for a day.
+REVALIDATE_ALWAYS = {"styles.css", "app.js", GOOGLE_VERIFICATION_FILE}
+
+
+def _serve_page(name: str) -> FileResponse:
+    page = FRONTEND_DIR / name
+    if not page.is_file():
+        raise HTTPException(status_code=500, detail=f"{name} is missing from the deployment.")
+    return FileResponse(
+        page,
+        media_type="text/html",
+        headers={"Cache-Control": "no-cache, must-revalidate"},
+    )
+
+
+@app.get("/app", include_in_schema=False)
+async def serve_app():
+    return _serve_page("app.html")
 
 
 @app.get("/favicon.ico", include_in_schema=False)
@@ -564,6 +580,11 @@ async def sitemap():
         f"    <loc>{SITE_URL}/</loc>\n"
         "    <changefreq>weekly</changefreq>\n"
         "    <priority>1.0</priority>\n"
+        "  </url>\n"
+        "  <url>\n"
+        f"    <loc>{SITE_URL}/app</loc>\n"
+        "    <changefreq>weekly</changefreq>\n"
+        "    <priority>0.8</priority>\n"
         "  </url>\n"
         "</urlset>\n"
     )
@@ -656,11 +677,12 @@ async def static_file(filename: str):
     path = FRONTEND_DIR / filename
     if not path.is_file():
         raise HTTPException(status_code=404, detail="Not found.")
-    return FileResponse(
-        path,
-        media_type=media_type,
-        headers={"Cache-Control": "public, max-age=86400"},
+    cache = (
+        "no-cache, must-revalidate"
+        if filename in REVALIDATE_ALWAYS
+        else "public, max-age=86400"
     )
+    return FileResponse(path, media_type=media_type, headers={"Cache-Control": cache})
 
 
 @app.exception_handler(Exception)
