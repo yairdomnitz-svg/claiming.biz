@@ -18,11 +18,13 @@
 <meta property="og:image" content="https://claimifi.biz/og-image.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Claimifi.biz — fact-check history on YouTube">
 
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Analyzer — Claimifi.biz">
 <meta name="twitter:description" content="Paste a YouTube history video and get every historical claim checked against 32 trusted sources.">
 <meta name="twitter:image" content="https://claimifi.biz/og-image.png">
+<meta name="twitter:image:alt" content="Claimifi.biz — fact-check history on YouTube">
 
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
@@ -73,7 +75,7 @@
   </div>
 </header>
 
-<main id="main">
+<main id="main" tabindex="-1">
   <div class="wrap wrap-narrow">
 
     <div class="hero-app">
@@ -85,7 +87,7 @@
           <label class="sr" for="videoInput">YouTube video URL or title</label>
           <div class="field">
             <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-            <input type="text" id="videoInput" placeholder="Paste a YouTube link, or type a video title" autocomplete="off" spellcheck="false" enterkeyhint="go" autofocus>
+            <input type="text" id="videoInput" placeholder="Paste a YouTube link, or type a video title" autocomplete="off" spellcheck="false" enterkeyhint="go" maxlength="2000">
           </div>
           <button class="btn" id="analyzeBtn" type="button">
             <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
@@ -102,7 +104,8 @@
       </div>
     </div>
 
-    <div id="results" aria-live="polite" aria-atomic="false"></div>
+    <p id="srStatus" class="sr" role="status" aria-live="polite"></p>
+    <div id="results" aria-busy="false"></div>
 
     <section style="padding:56px 0 0">
       <div class="grid-3">

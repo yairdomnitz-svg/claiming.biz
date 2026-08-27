@@ -16,13 +16,18 @@ Then open http://localhost:8000
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
+import contextlib
 import hashlib
+import ipaddress
 import json
 import logging
 import os
 import re
 import time
-from collections import deque
+import unicodedata
+from collections import OrderedDict, deque
+from contextlib import asynccontextmanager
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Deque, Dict, List, Optional
@@ -31,15 +36,33 @@ import httpx
 import requests
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 
 load_dotenv()
 
+
+def _env_log_level(default: str = "INFO") -> int:
+    """Resolve LOG_LEVEL without letting a typo take the process down.
+
+    os.getenv returns "" — not the default — for a variable that is set but
+    blank, and logging.basicConfig(level="") raises. This is the first thing
+    main.py does, before `app` exists, so a bad value there is an import-time
+    crash with no route to report it. Anything unrecognised falls back.
+    """
+    raw = os.getenv("LOG_LEVEL", "").strip().upper() or default
+    mapping = logging.getLevelNamesMapping()
+    if raw in mapping:
+        return mapping[raw]
+    logging.getLogger("claimifi").warning(
+        "Unknown LOG_LEVEL=%r, falling back to %s", raw, default
+    )
+    return mapping[default]
+
+
 logging.basicConfig(
-    level=os.getenv("LOG_LEVEL", "INFO").upper(),
+    level=_env_log_level(),
     format="%(asctime)s %(levelname)s %(name)s :: %(message)s",
 )
 log = logging.getLogger("claimifi")
@@ -84,17 +107,47 @@ GROK_TEMPERATURE = _env_float("GROK_TEMPERATURE", 0.2)
 
 MAX_TRANSCRIPT_CHARS = _env_int("MAX_TRANSCRIPT_CHARS", 100_000)
 TRANSCRIPT_TIMEOUT = _env_float("TRANSCRIPT_TIMEOUT", 45.0)
-# Per-HTTP-call bound inside the worker thread. Must stay under TRANSCRIPT_TIMEOUT.
+# Cap on any single HTTP call inside the worker thread. This is a ceiling, not
+# the real bound: _TimeoutSession also enforces a wall-clock deadline across the
+# whole fetch, because the outer asyncio timeout cannot stop a running thread.
 TRANSCRIPT_HTTP_TIMEOUT = _env_float("TRANSCRIPT_HTTP_TIMEOUT", 10.0)
+# Concurrent transcript fetches allowed in flight. Abandoned work stays pinned to
+# a thread long after the caller gave up, so this is the only real back-pressure.
+TRANSCRIPT_WORKERS = max(1, _env_int("TRANSCRIPT_WORKERS", 8))
 
 # Rate limiting, per client IP, per process.
 RATE_LIMIT_REQUESTS = _env_int("RATE_LIMIT_REQUESTS", 10)
 RATE_LIMIT_WINDOW = _env_int("RATE_LIMIT_WINDOW", 600)  # seconds
+# Second ceiling across all callers, so a botnet cannot bypass the per-IP limit
+# simply by having many IPs. 0 disables.
+GLOBAL_RATE_LIMIT_REQUESTS = _env_int("GLOBAL_RATE_LIMIT_REQUESTS", 300)
+GLOBAL_RATE_LIMIT_WINDOW = _env_int("GLOBAL_RATE_LIMIT_WINDOW", 3600)
+# Hard ceiling on distinct rate-limit buckets held in memory.
+MAX_RATE_BUCKETS = max(1000, _env_int("MAX_RATE_BUCKETS", 20_000))
 
-# Comma-separated list of origins, or "*" for any.
-ALLOWED_ORIGINS = [
-    o.strip() for o in os.getenv("ALLOWED_ORIGINS", "*").split(",") if o.strip()
-] or ["*"]
+# Comma-separated list of origins. Defaults to the canonical site rather than
+# "*": /api/analyze is unauthenticated and spends real money per call, and a
+# wildcard lets any page on the internet spend it from its visitors' browsers —
+# each arriving from a different residential IP with its own fresh quota.
+_raw_origins = [
+    o.strip() for o in os.getenv("ALLOWED_ORIGINS", "").split(",") if o.strip()
+]
+if not _raw_origins:
+    _host = SITE_URL.split("://", 1)[-1]
+    _scheme = SITE_URL.split("://", 1)[0] if "://" in SITE_URL else "https"
+    ALLOWED_ORIGINS = [SITE_URL]
+    if not _host.startswith("www."):
+        ALLOWED_ORIGINS.append(f"{_scheme}://www.{_host}")
+elif "*" in _raw_origins and len(_raw_origins) > 1:
+    # Starlette derives allow_all_origins from `"*" in allow_origins`, so a mixed
+    # list reflects any Origin back — while `!= ["*"]` below would also switch
+    # credentials on. That combination is exactly what the wildcard rule forbids.
+    raise RuntimeError(
+        'ALLOWED_ORIGINS may be "*" alone or a list of explicit origins, not both. '
+        f"Got: {os.getenv('ALLOWED_ORIGINS')!r}"
+    )
+else:
+    ALLOWED_ORIGINS = _raw_origins
 
 # Optional residential proxy for YouTube transcript fetching. YouTube blocks most
 # datacenter IPs (Railway, Render, Fly, AWS...), so without one, transcript
@@ -133,15 +186,60 @@ _TRUSTED_SET = {d.lower() for d in TRUSTED_SOURCES}
 # ---------------------------------------------------------------------------
 # App setup
 # ---------------------------------------------------------------------------
+# Built once at startup rather than per request: httpx.AsyncClient() builds an
+# ssl.SSLContext synchronously, which parses certifi's ~300 KB bundle on the
+# event loop. On a single-worker deploy that stalls every other in-flight
+# request for tens of milliseconds on each analysis.
+_grok_client: Optional[httpx.AsyncClient] = None
+
+# Transcript fetches run here instead of Starlette's shared threadpool. The
+# outer asyncio timeout cancels the *await*, not the thread, so abandoned work
+# keeps running; on the shared pool that displaces every other blocking task.
+_transcript_pool: Optional[concurrent.futures.ThreadPoolExecutor] = None
+_transcript_slots: Optional[asyncio.Semaphore] = None
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    global _grok_client, _transcript_pool, _transcript_slots
+
+    # Held locally as well as globally, so shutdown closes exactly what this
+    # lifespan opened. Reading the globals back would tear down a *later*
+    # lifespan's objects if two ever overlap, and leak this one's.
+    client = httpx.AsyncClient(
+        timeout=httpx.Timeout(GROK_TIMEOUT, connect=15.0),
+        limits=httpx.Limits(max_connections=20),
+    )
+    pool = concurrent.futures.ThreadPoolExecutor(
+        max_workers=TRANSCRIPT_WORKERS, thread_name_prefix="transcript"
+    )
+    _grok_client = client
+    _transcript_pool = pool
+    _transcript_slots = asyncio.Semaphore(TRANSCRIPT_WORKERS)
+    try:
+        yield
+    finally:
+        if _grok_client is client:
+            _grok_client = None
+        if _transcript_pool is pool:
+            _transcript_pool = None
+            _transcript_slots = None
+        await client.aclose()
+        # wait=False: an abandoned fetch can still be mid-request, and blocking
+        # here would hold the container open through a redeploy.
+        pool.shutdown(wait=False, cancel_futures=True)
+
+
 app = FastAPI(
     title="Claimifi.biz",
     description="Historical fact-checking powered by Grok (xAI)",
-    version="1.2.0",
+    version="1.3.0",
     # FastAPI registers these before any route in this file, so the catch-all
     # cannot shadow them. Nothing here benefits from a public API console.
     docs_url=None,
     redoc_url=None,
     openapi_url=None,
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -157,6 +255,17 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 # Models
 # ---------------------------------------------------------------------------
+class NotConfiguredError(HTTPException):
+    """503 meaning specifically 'no API key', not 'something went wrong'.
+
+    The frontend needs to distinguish this from every other 503 — a rejected
+    key, an edge proxy, a load balancer mid-deploy — because it is the one
+    state where no analysis is possible at all rather than temporarily failing.
+    """
+
+    reason = "no_api_key"
+
+
 class AnalyzeRequest(BaseModel):
     url: Optional[str] = Field(default=None, max_length=2000)
     title: Optional[str] = Field(default=None, max_length=300)
@@ -176,13 +285,19 @@ class AnalyzeResponse(BaseModel):
     claims: List[Claim]
     overall_assessment: str
     sources_used: List[str]
+    # "transcript" when a real caption track was read, "title" when the analysis
+    # only covers what a video with that title typically claims. The page has to
+    # be able to tell them apart: they look identical otherwise, and one of them
+    # never saw the video.
+    basis: str = "transcript"
     note: str = "Analysis powered by Grok. Always cross-check with primary sources."
 
 
 # ---------------------------------------------------------------------------
 # Rate limiting
 # ---------------------------------------------------------------------------
-_rate_buckets: Dict[str, Deque[float]] = {}
+_rate_buckets: "OrderedDict[str, Deque[float]]" = OrderedDict()
+_global_bucket: Deque[float] = deque()
 _rate_lock = asyncio.Lock()
 
 
@@ -203,48 +318,163 @@ def _client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
+def _bucket_key(ip: str) -> str:
+    """Collapse an address to the unit a single actor plausibly controls.
+
+    A residential IPv6 customer is handed a whole /64 and can pick any address
+    inside it at will, so keying on the exact address hands out an effectively
+    unlimited number of fresh quotas. IPv4 is allocated one address at a time,
+    so it keys as-is. Anything unparseable shares one bucket rather than
+    becoming a distinct identity.
+    """
+    candidate = ip.strip()
+    # Some proxies append the source port, in "1.2.3.4:5678" or "[2001:db8::1]:5678"
+    # form. Dropping it here keeps those callers as distinct identities instead of
+    # collapsing every one of them into the shared "unparsed" bucket.
+    if candidate.startswith("[") and "]" in candidate:
+        candidate = candidate[1 : candidate.index("]")]
+    elif candidate.count(":") == 1 and "." in candidate:
+        candidate = candidate.split(":", 1)[0]
+
+    try:
+        addr = ipaddress.ip_address(candidate)
+    except ValueError:
+        return "unparsed"
+
+    # An IPv4 client can reach a dual-stack listener as ::ffff:1.2.3.4. Left as
+    # IPv6 it would be masked to /64 — which is ::, the SAME bucket for every
+    # IPv4 caller on earth, so one of them could lock out all the others.
+    if addr.version == 6:
+        mapped = getattr(addr, "ipv4_mapped", None)
+        if mapped is not None:
+            return str(mapped)
+        return str(ipaddress.ip_network(f"{addr}/64", strict=False).network_address)
+    return str(addr)
+
+
+def _window_label(seconds: int) -> str:
+    if seconds < 120:
+        return f"{seconds} seconds"
+    minutes = seconds // 60
+    return f"{minutes} minute{'' if minutes == 1 else 's'}"
+
+
+def _trim(bucket: Deque[float], now: float, window: int) -> None:
+    while bucket and now - bucket[0] > window:
+        bucket.popleft()
+
+
+def _sweep_buckets(now: float) -> None:
+    """Drop empty/expired buckets, then hard-cap what is left.
+
+    The previous version could only ever drop buckets whose newest entry was
+    older than the whole window — but the caller had just written into the only
+    bucket it touched, so a flood of one-shot addresses was never collected and
+    the dict grew unboundedly while an O(N) scan ran under the lock on every
+    request past the threshold.
+    """
+    for key in [k for k, v in _rate_buckets.items() if not v or now - v[-1] > RATE_LIMIT_WINDOW]:
+        _rate_buckets.pop(key, None)
+    # OrderedDict is kept in least-recently-touched order by enforce_rate_limit,
+    # so evicting from the front drops the coldest buckets first.
+    while len(_rate_buckets) > MAX_RATE_BUCKETS:
+        _rate_buckets.popitem(last=False)
+
+
 async def enforce_rate_limit(request: Request) -> None:
-    if RATE_LIMIT_REQUESTS <= 0:
-        return
-    ip = _client_ip(request)
     now = time.monotonic()
     async with _rate_lock:
-        bucket = _rate_buckets.setdefault(ip, deque())
-        while bucket and now - bucket[0] > RATE_LIMIT_WINDOW:
-            bucket.popleft()
-        if len(bucket) >= RATE_LIMIT_REQUESTS:
-            retry_after = int(RATE_LIMIT_WINDOW - (now - bucket[0])) + 1
-            raise HTTPException(
-                status_code=429,
-                detail=(
-                    f"Rate limit reached ({RATE_LIMIT_REQUESTS} analyses per "
-                    f"{max(1, RATE_LIMIT_WINDOW // 60)} minutes). "
-                    f"Try again in {retry_after}s."
-                ),
-                headers={"Retry-After": str(retry_after)},
-            )
-        bucket.append(now)
+        if GLOBAL_RATE_LIMIT_REQUESTS > 0:
+            _trim(_global_bucket, now, GLOBAL_RATE_LIMIT_WINDOW)
+            if len(_global_bucket) >= GLOBAL_RATE_LIMIT_REQUESTS:
+                retry_after = int(GLOBAL_RATE_LIMIT_WINDOW - (now - _global_bucket[0])) + 1
+                raise HTTPException(
+                    status_code=503,
+                    detail=(
+                        "Claimifi.biz has hit its overall analysis budget for now. "
+                        f"Try again in about {_window_label(retry_after)}."
+                    ),
+                    headers={"Retry-After": str(retry_after)},
+                )
 
-        # Opportunistic cleanup so the dict cannot grow without bound.
-        if len(_rate_buckets) > 5000:
-            stale = [
-                k for k, v in _rate_buckets.items()
-                if not v or now - v[-1] > RATE_LIMIT_WINDOW
-            ]
-            for key in stale:
-                _rate_buckets.pop(key, None)
+        if RATE_LIMIT_REQUESTS > 0:
+            key = _bucket_key(_client_ip(request))
+            bucket = _rate_buckets.get(key)
+            if bucket is None:
+                bucket = _rate_buckets[key] = deque()
+            else:
+                _rate_buckets.move_to_end(key)
+            _trim(bucket, now, RATE_LIMIT_WINDOW)
+            if len(bucket) >= RATE_LIMIT_REQUESTS:
+                retry_after = int(RATE_LIMIT_WINDOW - (now - bucket[0])) + 1
+                raise HTTPException(
+                    status_code=429,
+                    detail=(
+                        f"Rate limit reached ({RATE_LIMIT_REQUESTS} analyses per "
+                        f"{_window_label(RATE_LIMIT_WINDOW)}). "
+                        f"Try again in {retry_after}s."
+                    ),
+                    headers={"Retry-After": str(retry_after)},
+                )
+            bucket.append(now)
+
+            if len(_rate_buckets) > MAX_RATE_BUCKETS:
+                _sweep_buckets(now)
+
+        if GLOBAL_RATE_LIMIT_REQUESTS > 0:
+            _global_bucket.append(now)
+
+
+# Statuses the server is answerable for. Everything else — a captionless video,
+# an age-gate, a dead link — is a property of what the caller asked for, and the
+# caller chooses that. Refunding those would leave the transcript path entirely
+# unmetered: pick a video that always fails, loop, and neither counter ever moves
+# while every attempt still spends proxy bandwidth and a worker thread.
+REFUNDABLE_STATUSES = frozenset({502, 503, 504})
+
+
+async def refund_rate_limit(request: Request) -> None:
+    """Give back a slot charged for work the server itself could not do.
+
+    The quota is metered before the transcript fetch, because an unmetered fetch
+    is an abuse vector on its own. But an IP block or a timeout is the service
+    failing, not the visitor using it — and burning all ten slots on those locks
+    them out of the title-only fallback the FAQ points them to.
+    """
+    async with _rate_lock:
+        if GLOBAL_RATE_LIMIT_REQUESTS > 0 and _global_bucket:
+            _global_bucket.pop()
+        if RATE_LIMIT_REQUESTS <= 0:
+            return
+        bucket = _rate_buckets.get(_bucket_key(_client_ip(request)))
+        if bucket:
+            bucket.pop()  # enforce_rate_limit appends to the tail
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+# The trailing lookahead matters: without it a 16-character token matches its
+# own first 11 characters, so a typo'd link is silently "corrected" into a
+# different, real video and analysed as if the user had asked for it.
 _VIDEO_ID_PATTERNS = [
     re.compile(
         r"(?:youtube\.com/watch\?(?:[^&\s]*&)*v=|youtu\.be/|youtube\.com/embed/"
-        r"|youtube\.com/v/|youtube\.com/shorts/|youtube\.com/live/)([a-zA-Z0-9_-]{11})"
+        r"|youtube-nocookie\.com/embed/|youtube\.com/v/|youtube\.com/shorts/"
+        r"|youtube\.com/live/)([a-zA-Z0-9_-]{11})(?![a-zA-Z0-9_-])"
     ),
-    re.compile(r"^([a-zA-Z0-9_-]{11})$"),
+    # A bare id, but only when it could not be an ordinary word. YouTube ids are
+    # drawn from a 64-character alphabet, so a real one almost always carries a
+    # digit, "-" or "_"; "Renaissance", "Reformation" and "Charlemagne" are all
+    # exactly 11 letters and are titles, not ids. An all-letter id does exist and
+    # will fall to the title path — where the result is now plainly badged
+    # "Title only", so the user can see what happened and paste the full link.
+    re.compile(r"^(?=[a-zA-Z0-9_-]{11}$)([a-zA-Z]*[0-9_-][a-zA-Z0-9_-]*)$"),
 ]
+
+# Reserved path segments that are exactly 11 characters and are therefore
+# indistinguishable from a video id by shape alone.
+_RESERVED_ID_SEGMENTS = {"videoseries"}
 
 
 def extract_video_id(url: str) -> Optional[str]:
@@ -252,30 +482,67 @@ def extract_video_id(url: str) -> Optional[str]:
     for pattern in _VIDEO_ID_PATTERNS:
         match = pattern.search(url)
         if match:
-            return match.group(1)
+            video_id = match.group(1)
+            if video_id in _RESERVED_ID_SEGMENTS:
+                return None
+            return video_id
     return None
 
 
-class _TimeoutSession(requests.Session):
-    """A requests session that applies a default timeout to every call.
+class TranscriptDeadlineExceeded(requests.exceptions.Timeout):
+    """The whole-fetch budget ran out before this call could start."""
 
-    youtube-transcript-api sets no timeout of its own, and the fetch runs in a
-    worker thread whose cancellation is deferred until it returns. Without this,
-    a stalled YouTube connection pins a threadpool slot indefinitely and the
-    outer asyncio timeout never gets a chance to fire.
+
+def _disable_adapter_retries(session: requests.Session) -> None:
+    """Strip transport-level retries so one call means one attempt."""
+    from requests.adapters import HTTPAdapter
+    from urllib3.util.retry import Retry
+
+    retry = Retry(total=0, redirect=3, respect_retry_after_header=False)
+    for prefix in ("http://", "https://"):
+        session.mount(prefix, HTTPAdapter(max_retries=retry))
+
+
+class _TimeoutSession(requests.Session):
+    """A requests session bounded by a wall-clock budget, not a per-call timeout.
+
+    youtube-transcript-api sets no timeout of its own, and one fetch issues
+    several HTTP calls — the library retries a blocked request internally *and*
+    mounts a urllib3 Retry adapter on this session, so a per-call timeout
+    multiplies out to many times the budget the caller is waiting on. Since the
+    thread cannot be cancelled once started, the only bound that actually holds
+    is one measured across the whole fetch.
     """
 
-    def __init__(self, timeout: float) -> None:
+    def __init__(self, budget: float, per_call_cap: float) -> None:
         super().__init__()
-        self._timeout = timeout
+        self._deadline = time.monotonic() + budget
+        self._per_call_cap = per_call_cap
+
+    @property
+    def remaining(self) -> float:
+        return self._deadline - time.monotonic()
 
     def request(self, *args, **kwargs):  # type: ignore[override]
-        kwargs.setdefault("timeout", self._timeout)
+        remaining = self.remaining
+        if remaining <= 0:
+            raise TranscriptDeadlineExceeded(
+                "Transcript fetch budget exhausted before this request could start."
+            )
+        if "timeout" not in kwargs or kwargs["timeout"] is None:
+            bound = min(self._per_call_cap, remaining)
+            # Explicit (connect, read) tuple: a scalar is applied to *each*
+            # socket operation separately, so it does not bound the call.
+            kwargs["timeout"] = (min(bound, 10.0), bound)
         return super().request(*args, **kwargs)
 
 
+@lru_cache(maxsize=1)
 def _build_proxy_config():
     """Return a youtube-transcript-api proxy config, or None if unconfigured.
+
+    Cached: this used to run on every transcript fetch, re-importing the proxy
+    module and re-emitting the "no proxy configured" warning once per request.
 
     YouTube blocks datacenter IP ranges, which covers every Railway region, so
     without one of these the transcript fetch fails in production even though it
@@ -330,8 +597,101 @@ def _build_proxy_config():
     return None
 
 
+@lru_cache(maxsize=1)
+def _transcript_error_types() -> Dict[str, tuple]:
+    """Group the library's exception classes by how we want to answer them.
+
+    Classifying on exception *type* rather than on str(exc): the message embeds
+    the caller-supplied video id via the watch URL, so a video whose id happened
+    to contain "blocked" or "unavailable" used to steer its own error handling.
+    """
+    from youtube_transcript_api import _errors as yt_errors
+
+    def pick(*names):
+        return tuple(
+            cls for cls in (getattr(yt_errors, n, None) for n in names) if cls is not None
+        )
+
+    return {
+        "blocked": pick("IpBlocked", "RequestBlocked"),
+        "no_captions": pick("TranscriptsDisabled", "NoTranscriptFound"),
+        "unavailable": pick("VideoUnavailable", "VideoUnplayable"),
+        "restricted": pick("AgeRestricted", "PoTokenRequired"),
+        "bad_id": pick("InvalidVideoId"),
+    }
+
+
+def _classify_transcript_error(exc: BaseException) -> HTTPException:
+    """Map a transcript failure onto an answer the visitor can act on."""
+    groups = _transcript_error_types()
+
+    def is_a(kind: str) -> bool:
+        return bool(groups[kind]) and isinstance(exc, groups[kind])
+
+    if is_a("blocked"):
+        if _build_proxy_config() is not None:
+            # A proxy is already configured, so telling the operator to set one
+            # is noise. The real cause is usually the wrong Webshare product or
+            # an exhausted pool.
+            detail = (
+                "YouTube blocked the request even through the configured proxy. "
+                "This usually means the proxy pool is exhausted or is not a "
+                "rotating residential package. Try again shortly."
+            )
+        else:
+            detail = (
+                "YouTube is blocking this server's IP address. Cloud hosts are blocked by "
+                "default. Set WEBSHARE_PROXY_USERNAME / WEBSHARE_PROXY_PASSWORD (or PROXY_URL) "
+                "to route transcript requests through a residential proxy."
+            )
+        return HTTPException(status_code=502, detail=detail)
+
+    if is_a("no_captions"):
+        return HTTPException(
+            status_code=404,
+            detail="This video has no captions available, so there is nothing to fact-check.",
+        )
+    if is_a("unavailable"):
+        return HTTPException(
+            status_code=404,
+            detail="That video is unavailable (private, deleted, or region-locked).",
+        )
+    if is_a("restricted"):
+        return HTTPException(
+            status_code=403,
+            detail=(
+                "That video is age-restricted or sign-in gated, so its captions cannot "
+                "be retrieved. Try analysing the video's title instead."
+            ),
+        )
+    if is_a("bad_id"):
+        return HTTPException(
+            status_code=400,
+            detail="That does not look like a valid YouTube video link.",
+        )
+    if isinstance(exc, requests.exceptions.Timeout):
+        return HTTPException(
+            status_code=504, detail="Timed out while fetching the transcript from YouTube."
+        )
+    if isinstance(exc, requests.exceptions.RequestException):
+        return HTTPException(
+            status_code=502,
+            detail="Could not reach YouTube to fetch this video's captions. Please try again.",
+        )
+    # Deliberately generic: the library's own text is written for the developer
+    # who installed it, complete with a GitHub issue link, and used to be
+    # forwarded verbatim to end users.
+    return HTTPException(
+        status_code=502,
+        detail="Could not retrieve a transcript for this video. Please try again.",
+    )
+
+
 def _fetch_transcript_sync(video_id: str) -> str:
-    """Blocking transcript fetch. Must be run in a threadpool."""
+    """Blocking transcript fetch. Must be run on the transcript pool.
+
+    Raises HTTPException directly; the caller re-raises it unchanged.
+    """
     try:
         from youtube_transcript_api import YouTubeTranscriptApi
     except ImportError as exc:  # pragma: no cover - dependency is pinned
@@ -341,79 +701,97 @@ def _fetch_transcript_sync(video_id: str) -> str:
         ) from exc
 
     languages = ["en", "en-US", "en-GB"]
-    errors: List[str] = []
     proxy_config = _build_proxy_config()
 
-    # Modern instance API (youtube-transcript-api >= 1.0)
+    # Budget the whole fetch, not each call. WEBSHARE_RETRIES is consumed twice
+    # by the library - once as a urllib3 Retry adapter mounted on this very
+    # session, once as its own re-fetch loop - so a per-call timeout multiplies
+    # out to several times the timeout the caller is waiting on, and the thread
+    # keeps running long after that caller has been answered.
+    session = _TimeoutSession(
+        budget=max(1.0, TRANSCRIPT_TIMEOUT * 0.9),
+        per_call_cap=TRANSCRIPT_HTTP_TIMEOUT,
+    )
     try:
-        kwargs = {"http_client": _TimeoutSession(TRANSCRIPT_HTTP_TIMEOUT)}
+        kwargs: Dict[str, Any] = {"http_client": session}
         if proxy_config:
             kwargs["proxy_config"] = proxy_config
-        try:
-            ytt = YouTubeTranscriptApi(**kwargs)
-        except TypeError:
-            # Older builds accept neither http_client nor a constructor at all.
-            ytt = YouTubeTranscriptApi(proxy_config=proxy_config) if proxy_config else YouTubeTranscriptApi()
-        fetched = ytt.fetch(video_id, languages=languages)
-        text = " ".join(snippet.text for snippet in fetched).strip()
-        if text:
-            return text
-        errors.append("modern API returned an empty transcript")
-    except TypeError as exc:
-        # Pre-1.0 versions expose no usable constructor.
-        errors.append(f"modern API unavailable ({exc})")
-    except Exception as exc:
-        errors.append(f"{type(exc).__name__}: {exc}")
+        ytt = YouTubeTranscriptApi(**kwargs)
 
-    # Legacy classmethod API (youtube-transcript-api < 1.0), only if it exists.
-    legacy = getattr(YouTubeTranscriptApi, "get_transcript", None)
-    if callable(legacy):
+        # The library mounts its own urllib3 Retry(total=retries_when_blocked)
+        # on this session during construction, on top of its own re-fetch loop
+        # in _fetch_captions_json — so WEBSHARE_RETRIES was applied twice and one
+        # call could take (1 + retries) x the per-call timeout. Undo the mount:
+        # the library's own loop is the one that rotates the exit IP, which is
+        # the behaviour the setting is actually for.
+        _disable_adapter_retries(session)
+
         try:
-            entries = legacy(video_id, languages=languages)
-            text = " ".join(entry["text"] for entry in entries).strip()
-            if text:
-                return text
-            errors.append("legacy API returned an empty transcript")
+            fetched = ytt.fetch(video_id, languages=languages)
+        except HTTPException:
+            raise
         except Exception as exc:
-            errors.append(f"{type(exc).__name__}: {exc}")
+            log.warning(
+                "Transcript fetch failed for %s :: %s: %s",
+                video_id,
+                type(exc).__name__,
+                exc,
+            )
+            raise _classify_transcript_error(exc) from exc
 
-    joined = " | ".join(errors) or "unknown error"
-    log.warning("Transcript fetch failed for %s :: %s", video_id, joined)
-
-    lowered = joined.lower()
-    if "ipblocked" in lowered or "requestblocked" in lowered or "blocked" in lowered:
-        raise HTTPException(
-            status_code=502,
-            detail=(
-                "YouTube is blocking this server's IP address. Cloud hosts are blocked by "
-                "default. Set WEBSHARE_PROXY_USERNAME / WEBSHARE_PROXY_PASSWORD (or PROXY_URL) "
-                "to route transcript requests through a residential proxy."
-            ),
-        )
-    if "disabled" in lowered or "notranscript" in lowered:
-        raise HTTPException(
-            status_code=404,
-            detail="This video has no captions available, so there is nothing to fact-check.",
-        )
-    if "unavailable" in lowered:
-        raise HTTPException(
-            status_code=404,
-            detail="That video is unavailable (private, deleted, or region-locked).",
-        )
-    raise HTTPException(
-        status_code=502,
-        detail=f"Could not retrieve a transcript for this video. ({joined[:300]})",
-    )
+        text = " ".join(snippet.text for snippet in fetched).strip()
+        if not text:
+            raise HTTPException(
+                status_code=422,
+                detail="This video's caption track is empty, so there is nothing to fact-check.",
+            )
+        return text
+    finally:
+        with contextlib.suppress(Exception):
+            session.close()
 
 
 async def get_transcript(video_id: str) -> str:
-    """Fetch a transcript without blocking the event loop."""
-    try:
-        return await asyncio.wait_for(
-            run_in_threadpool(_fetch_transcript_sync, video_id),
-            timeout=TRANSCRIPT_TIMEOUT,
+    """Fetch a transcript without blocking the event loop.
+
+    asyncio.wait_for cancels the *await*, not the worker thread, and anyio hands
+    its capacity-limiter token back the moment that await is cancelled - so on
+    the shared threadpool abandoned fetches provide no back-pressure at all and
+    keep displacing every other blocking task. A dedicated pool, plus a
+    semaphore acquired outside the timeout, is what actually bounds this.
+    """
+    pool, slots = _transcript_pool, _transcript_slots
+    if pool is None or slots is None:  # pragma: no cover - lifespan always runs
+        raise HTTPException(status_code=503, detail="The service is still starting up.")
+
+    if slots.locked():
+        raise HTTPException(
+            status_code=503,
+            detail="Too many transcript fetches are in flight. Please try again shortly.",
+            headers={"Retry-After": "30"},
         )
+
+    await slots.acquire()
+    loop = asyncio.get_running_loop()
+    future = loop.run_in_executor(pool, _fetch_transcript_sync, video_id)
+
+    def _finished(fut: "asyncio.Future") -> None:
+        # Release when the thread genuinely finishes, not when we stop waiting
+        # for it, or the semaphore stops reflecting real occupancy.
+        slots.release()
+        if not fut.cancelled():
+            # Retrieve it: after a timeout nobody awaits this future, and an
+            # unretrieved exception is reported as "never retrieved" noise.
+            fut.exception()
+
+    future.add_done_callback(_finished)
+    try:
+        # shield, so the timeout abandons the *wait* without also marking a
+        # still-running future as cancelled.
+        return await asyncio.wait_for(asyncio.shield(future), timeout=TRANSCRIPT_TIMEOUT)
     except asyncio.TimeoutError as exc:
+        log.warning("Transcript fetch for %s exceeded %ss; thread left running.",
+                    video_id, TRANSCRIPT_TIMEOUT)
         raise HTTPException(
             status_code=504,
             detail="Timed out while fetching the transcript from YouTube.",
@@ -456,6 +834,38 @@ Instructions:
 """
 
 
+def _balanced_objects(text: str, limit: int = 5) -> List[str]:
+    """Yield top-level {...} spans with matching braces, outermost first."""
+    found: List[str] = []
+    depth = 0
+    start = -1
+    in_string = False
+    escaped = False
+    for i, ch in enumerate(text):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}":
+            if depth > 0:
+                depth -= 1
+                if depth == 0 and start >= 0:
+                    found.append(text[start : i + 1])
+                    if len(found) >= limit:
+                        break
+    return found
+
+
 def _extract_json_object(raw: str) -> Dict[str, Any]:
     """Parse Grok's reply into a dict, tolerating fences and surrounding prose."""
     text = (raw or "").strip()
@@ -464,10 +874,16 @@ def _extract_json_object(raw: str) -> Dict[str, Any]:
         text = re.sub(r"\s*```$", "", text).strip()
 
     candidates = [text]
-    match = re.search(r"\{[\s\S]*\}", text)
-    if match:
-        candidates.append(match.group(0))
+    # Greedy first: it rescues a lone object wrapped in prose. Then each
+    # balanced object in order, because the greedy span between the first "{"
+    # and the last "}" is invalid JSON whenever the reply contains two objects,
+    # and a JSON *array* reply made it capture one arbitrary element.
+    greedy = re.search(r"\{[\s\S]*\}", text)
+    if greedy:
+        candidates.append(greedy.group(0))
+    candidates.extend(_balanced_objects(text))
 
+    fallback: Optional[Dict[str, Any]] = None
     for candidate in candidates:
         if not candidate:
             continue
@@ -475,8 +891,22 @@ def _extract_json_object(raw: str) -> Dict[str, Any]:
             parsed = json.loads(candidate)
         except json.JSONDecodeError:
             continue
-        if isinstance(parsed, dict):
+        if isinstance(parsed, list) and all(isinstance(x, dict) for x in parsed):
+            # A bare array is the model answering with just the claims list.
+            # Reading it as one beats silently picking a single element out of
+            # it, which is what the greedy brace scan used to do.
+            parsed = {"claims": parsed}
+        if not isinstance(parsed, dict):
+            continue
+        # Prefer an object that actually looks like the analysis. A model that
+        # emits a reasoning preamble object first would otherwise have that
+        # preamble returned as the whole result, silently yielding zero claims.
+        if "claims" in parsed or "overall_assessment" in parsed:
             return parsed
+        if fallback is None:
+            fallback = parsed
+    if fallback is not None:
+        return fallback
 
     log.error("Grok returned unparseable content: %s", text[:500])
     raise HTTPException(
@@ -487,7 +917,7 @@ def _extract_json_object(raw: str) -> Dict[str, Any]:
 
 async def call_grok(transcript: str, video_context: str = "") -> Dict[str, Any]:
     if not XAI_API_KEY:
-        raise HTTPException(
+        raise NotConfiguredError(
             status_code=503,
             detail="The fact-checking service is not configured (XAI_API_KEY is missing).",
         )
@@ -516,12 +946,14 @@ async def call_grok(transcript: str, video_context: str = "") -> Dict[str, Any]:
         "Content-Type": "application/json",
     }
 
-    timeout = httpx.Timeout(GROK_TIMEOUT, connect=15.0)
+    client = _grok_client
+    if client is None:  # pragma: no cover - lifespan always runs
+        raise HTTPException(status_code=503, detail="The service is still starting up.")
+
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(
-                f"{XAI_BASE_URL}/chat/completions", headers=headers, json=payload
-            )
+        resp = await client.post(
+            f"{XAI_BASE_URL}/chat/completions", headers=headers, json=payload
+        )
     except httpx.TimeoutException as exc:
         raise HTTPException(
             status_code=504,
@@ -535,7 +967,13 @@ async def call_grok(transcript: str, video_context: str = "") -> Dict[str, Any]:
         ) from exc
 
     if resp.status_code == 401:
-        raise HTTPException(status_code=503, detail="The configured XAI_API_KEY was rejected by xAI.")
+        # Deliberately not 503: 503 means "no key configured", which is the one
+        # state the frontend is allowed to treat as non-live. A key that exists
+        # but was rejected is a server fault, and must not be mistaken for it.
+        log.error("xAI rejected the configured API key.")
+        raise HTTPException(
+            status_code=502, detail="The configured XAI_API_KEY was rejected by xAI."
+        )
     if resp.status_code == 429:
         raise HTTPException(status_code=429, detail="Grok is rate-limiting this service. Try again shortly.")
     if resp.status_code != 200:
@@ -547,7 +985,8 @@ async def call_grok(transcript: str, video_context: str = "") -> Dict[str, Any]:
 
     try:
         body = resp.json()
-        raw = body["choices"][0]["message"]["content"]
+        choice = body["choices"][0]
+        raw = choice["message"]["content"]
     except (json.JSONDecodeError, ValueError, KeyError, IndexError, TypeError) as exc:
         log.error("Unexpected Grok payload: %s", resp.text[:500])
         raise HTTPException(
@@ -562,7 +1001,36 @@ async def call_grok(transcript: str, video_context: str = "") -> Dict[str, Any]:
             detail="Grok returned an empty response. Try again, or raise GROK_MAX_TOKENS.",
         )
 
+    # A reply cut off at max_tokens is not malformed JSON in any way the caller
+    # can fix by retrying, and reporting it as such hides a cap that only the
+    # operator can raise.
+    if isinstance(choice, dict) and choice.get("finish_reason") == "length":
+        log.error(
+            "Grok reply truncated at GROK_MAX_TOKENS=%s; raise it or shorten the input.",
+            GROK_MAX_TOKENS,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "The analysis was cut off before it finished. Try a shorter video, "
+                "or ask the operator to raise GROK_MAX_TOKENS."
+            ),
+        )
+
     return _extract_json_object(str(raw))
+
+
+def _visible_text(text: str) -> str:
+    """Drop characters that render as nothing at all.
+
+    The minimum-title guard counted code points, so three zero-width joiners
+    passed it and were then billed as an analysis of nothing. Only Cf (format)
+    and Cc (control) are dropped: a space separator does occupy space, so
+    "A B" is a three-character title and still counts as one.
+    """
+    return "".join(
+        ch for ch in text if unicodedata.category(ch) not in {"Cf", "Cc"}
+    ).strip()
 
 
 def _filter_sources(values: Any, limit: int = 8) -> List[str]:
@@ -585,6 +1053,28 @@ def _filter_sources(values: Any, limit: int = 8) -> List[str]:
     return kept[:limit]
 
 
+MAX_CLAIMS = 25
+MAX_CLAIM_CHARS = 400
+MAX_EXPLANATION_CHARS = 900
+MAX_ASSESSMENT_CHARS = 1200
+
+
+def _clean_text(value: Any, limit: int) -> str:
+    """Trim model output to a renderable size and strip control characters.
+
+    Not a prompt-injection defence - a hostile caption track needs only a short
+    sentence to mislead, and esc() in app.js is what prevents markup escaping.
+    This just stops one runaway field from dominating the page.
+    """
+    text = str(value or "")
+    text = "".join(
+        ch for ch in text if ch in "\n\t" or unicodedata.category(ch)[0] != "C"
+    ).strip()
+    if len(text) > limit:
+        text = text[: limit - 1].rstrip() + "\u2026"
+    return text
+
+
 def _normalize_claims(analysis: Dict[str, Any]) -> List[Claim]:
     raw_claims = analysis.get("claims")
     if not isinstance(raw_claims, list):
@@ -592,20 +1082,22 @@ def _normalize_claims(analysis: Dict[str, Any]) -> List[Claim]:
 
     claims: List[Claim] = []
     for item in raw_claims:
+        if len(claims) >= MAX_CLAIMS:
+            break
         if not isinstance(item, dict):
             continue
         verdict = str(item.get("verdict", "") or "").strip()
         if verdict not in VALID_VERDICTS:
             matched = next((v for v in VALID_VERDICTS if v.lower() == verdict.lower()), None)
             verdict = matched or "Insufficient Evidence"
-        claim_text = str(item.get("claim", "") or "").strip()
+        claim_text = _clean_text(item.get("claim"), MAX_CLAIM_CHARS)
         if not claim_text:
             continue
         claims.append(
             Claim(
                 claim=claim_text,
                 verdict=verdict,
-                explanation=str(item.get("explanation", "") or "").strip(),
+                explanation=_clean_text(item.get("explanation"), MAX_EXPLANATION_CHARS),
                 sources=_filter_sources(item.get("sources")),
             )
         )
@@ -677,7 +1169,11 @@ async def serve_app():
 async def favicon_ico():
     svg = FRONTEND_DIR / "favicon.svg"
     if svg.exists():
-        return FileResponse(svg, media_type="image/svg+xml")
+        return FileResponse(
+            svg,
+            media_type="image/svg+xml",
+            headers={"Cache-Control": "public, max-age=86400"},
+        )
     return Response(status_code=204)
 
 
@@ -688,7 +1184,6 @@ async def robots():
         "Allow: /\n"
         "Disallow: /api/\n"
         "Disallow: /health\n"
-        "Disallow: /app?\n"
         "\n"
         f"Sitemap: {SITE_URL}/sitemap.xml\n"
     )
@@ -761,28 +1256,61 @@ async def analyze(req: AnalyzeRequest, request: Request):
             )
         # Metered only once the input is valid, so typos do not burn a visitor's quota.
         await enforce_rate_limit(request)
-        transcript = await get_transcript(video_id)
+        try:
+            transcript = await get_transcript(video_id)
+            if len(transcript.strip()) < 30:
+                raise HTTPException(
+                    status_code=422, detail="The transcript is too short to analyze."
+                )
+        except HTTPException as exc:
+            # Only refund what the server got wrong. A 404 for a captionless
+            # video is an answer about the video the caller chose, and charging
+            # for it is what keeps this path metered at all.
+            if exc.status_code in REFUNDABLE_STATUSES:
+                await refund_rate_limit(request)
+            raise
         video_title = title or f"YouTube video ({video_id})"
-        if len(transcript.strip()) < 30:
-            raise HTTPException(status_code=422, detail="The transcript is too short to analyze.")
+        basis = "transcript"
     else:
-        if len(title) < 3:
+        if extract_video_id(title):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "That looks like a YouTube video ID. Paste the full link instead, "
+                    "so the real transcript gets checked."
+                ),
+            )
+        if len(_visible_text(title)) < 3:
             raise HTTPException(status_code=400, detail="Give a longer video title to analyze.")
         await enforce_rate_limit(request)
         video_title = title
+        basis = "title"
         transcript = (
             "[No transcript available. Analyze the historical claims typically made by a "
             f"video with this title: {title}]"
         )
 
-    analysis = await call_grok(transcript, video_context=video_title)
+    try:
+        analysis = await call_grok(transcript, video_context=video_title)
+    except HTTPException as exc:
+        # Same rule as the transcript stage: a missing key, an upstream outage
+        # or a timeout is the service failing. Charging a visitor for a 503 on a
+        # deploy that has no key at all would empty their quota against a
+        # service that cannot do anything for them.
+        if exc.status_code in REFUNDABLE_STATUSES:
+            await refund_rate_limit(request)
+        raise
 
+    # No fallback list here. Asserting that six domains were consulted when the
+    # model named none is fabricated provenance, on a product whose whole
+    # premise is that every verdict is sourced.
     sources_used = _filter_sources(analysis.get("sources_used"), limit=20)
-    if not sources_used:
-        sources_used = TRUSTED_SOURCES[:6]
 
     overall = analysis.get("overall_assessment")
-    if not isinstance(overall, str) or not overall.strip():
+    overall = _clean_text(overall if isinstance(overall, str) else "", MAX_ASSESSMENT_CHARS)
+    if not overall:
+        # Chosen after cleaning, not before: a string of control characters is
+        # non-empty going in and empty coming out.
         overall = "No overall assessment was returned."
 
     return AnalyzeResponse(
@@ -790,8 +1318,9 @@ async def analyze(req: AnalyzeRequest, request: Request):
         video_id=video_id,
         transcript_preview=(transcript[:350] + "…") if len(transcript) > 350 else transcript,
         claims=_normalize_claims(analysis),
-        overall_assessment=overall.strip(),
+        overall_assessment=overall,
         sources_used=sources_used,
+        basis=basis,
         note="Analysis powered by Grok (xAI). Educational tool only — always verify with primary sources.",
     )
 
@@ -814,6 +1343,16 @@ async def static_file(filename: str):
     return FileResponse(path, media_type=media_type, headers={"Cache-Control": cache})
 
 
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """Default handler plus an optional machine-readable `reason`."""
+    body: Dict[str, Any] = {"detail": exc.detail}
+    reason = getattr(exc, "reason", None)
+    if reason:
+        body["reason"] = reason
+    return JSONResponse(status_code=exc.status_code, content=body, headers=exc.headers)
+
+
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
     log.exception("Unhandled error on %s %s", request.method, request.url.path)
@@ -829,7 +1368,8 @@ if __name__ == "__main__":
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
-        port=_env_int("PORT", 8000),
+        # Matches the Procfile fallback; Railway injects PORT in production.
+        port=_env_int("PORT", 8080),
         proxy_headers=True,
         forwarded_allow_ips="*",
     )

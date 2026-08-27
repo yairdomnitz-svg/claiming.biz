@@ -1,5 +1,6 @@
-/* Claimifi.biz — analyzer logic, shared by the landing page (/) and /app.
-   Every hook is optional, so the script is inert on a page that omits the widget. */
+/* Claimifi.biz — analyzer logic.
+   Loaded by both pages, but only /app carries the widget: on the landing page
+   everything below the hook check is skipped and only the status badge runs. */
 (function () {
   'use strict';
 
@@ -18,6 +19,19 @@
       .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
+  // The server accepts a bare 11-character id as a URL. Without this the page
+  // sent it as a *title* instead, and the user got an analysis of a meaningless
+  // string presented as a completed check.
+  //
+  // The digit/underscore/hyphen requirement matters: "Renaissance",
+  // "Reformation" and "Charlemagne" are all exactly 11 letters, and routing
+  // those as video ids broke the title-only path for common one-word topics.
+  // Kept identical to _VIDEO_ID_PATTERNS[1] in main.py.
+  function looksLikeVideo(q) {
+    return /youtube\.com|youtu\.be|youtube-nocookie\.com/.test(q) ||
+           /^(?=[a-zA-Z0-9_-]{11}$)[a-zA-Z]*[0-9_-][a-zA-Z0-9_-]*$/.test(q);
+  }
+
   // "Unsupported" contains "supported", so it must be tested first.
   function verdictKey(v) {
     var s = String(v || '').toLowerCase();
@@ -29,6 +43,18 @@
 
   /* ---------------- Status badge ---------------- */
 
+  // Short, discrete announcements for screen readers. The results panel is
+  // rewritten wholesale on every render and carries a per-second timer, so it
+  // is the wrong element to make a live region.
+  function announce(text) {
+    var el = $('srStatus');
+    if (el) el.textContent = text;
+  }
+
+  function setBusy(on) {
+    if (results) results.setAttribute('aria-busy', on ? 'true' : 'false');
+  }
+
   function setStatus(mode, text) {
     var el = $('status');
     if (!el) return;
@@ -39,8 +65,8 @@
 
   fetch('/api/config', { cache: 'no-store' })
     .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
-    .then(function (cfg) { setStatus(cfg.live ? 'live' : 'demo', cfg.live ? 'Live' : 'Demo mode'); })
-    .catch(function () { setStatus('demo', 'Demo mode'); });
+    .then(function (cfg) { setStatus(cfg.live ? 'live' : 'demo', cfg.live ? 'Live' : 'Not configured'); })
+    .catch(function () { setStatus('demo', 'Unavailable'); });
 
   if (!input || !results || !btn) return;
 
@@ -67,11 +93,27 @@
           '<div class="step" id="s2"><span class="box"></span>Checking against trusted sources</div>' +
           '<div class="step" id="s3"><span class="box"></span>Writing sourced verdicts</div>' +
         '</div>' +
-        '<div class="elapsed" id="elapsed">0s elapsed</div>' +
+        '<div class="elapsed" id="elapsed" aria-hidden="true">0s elapsed</div>' +
       '</div>');
   }
 
+  // FastAPI returns `detail` as a string for our own HTTPExceptions, but as a
+  // list of error objects for anything pydantic rejects (a title over 300
+  // chars, a malformed body). Assuming a string turned every one of those into
+  // an opaque "The server returned an error (422)."
+  function detailText(detail, status) {
+    if (typeof detail === 'string' && detail) return detail;
+    if (Array.isArray(detail) && detail.length) {
+      var parts = detail.map(function (d) {
+        return d && typeof d.msg === 'string' ? d.msg : null;
+      }).filter(Boolean);
+      if (parts.length) return parts.join('; ') + '.';
+    }
+    return 'The server returned an error (' + status + ').';
+  }
+
   function renderError(msg, retryable) {
+    announce('Analysis failed. ' + msg);
     shell('error', 'Error',
       '<div class="panel-body">' +
         '<div class="label">Could not complete the analysis</div>' +
@@ -88,8 +130,9 @@
     }).join('');
   }
 
-  function renderAnalysis(data, mode) {
+  function renderAnalysis(data) {
     var claims = Array.isArray(data.claims) ? data.claims : [];
+    var titleOnly = data.basis === 'title';
 
     var counts = { supported: 0, mixed: 0, unsupported: 0, insufficient: 0 };
     claims.forEach(function (c) { counts[verdictKey(c.verdict)]++; });
@@ -118,13 +161,21 @@
     }).join('');
 
     var used = tagLinks(data.sources_used);
-    var pill = mode === 'demo' ? ['demo', 'Demo'] : ['done', 'Complete'];
+    // A title-only run never read the video. It has to be visibly different
+    // from one that did, or the page presents guesswork as a transcript check.
+    var pill = titleOnly ? ['demo', 'Title only'] : ['done', 'Complete'];
 
     shell(pill[0], pill[1],
+      (titleOnly
+        ? '<div class="panel-body notice">' +
+            '<p>No transcript was read. This covers the claims a video with this ' +
+            'title typically makes, not what this video actually says.</p>' +
+          '</div>'
+        : '') +
       '<div class="panel-body">' +
-        '<div class="label">Video</div>' +
+        '<div class="label">' + (titleOnly ? 'Title' : 'Video') + '</div>' +
         '<p style="font-weight:500">' + esc(data.video_title || 'Unknown') + '</p>' +
-        (data.video_id && data.video_id !== 'demo'
+        (data.video_id
           ? '<p style="font-size:.82rem;color:var(--text-3);margin-top:4px">ID: ' + esc(data.video_id) + '</p>' : '') +
       '</div>' +
       '<div class="panel-body">' +
@@ -161,49 +212,26 @@
           lines.push('');
         });
         lines.push('Overall: ' + data.overall_assessment);
+
+        // navigator.clipboard is undefined on any non-HTTPS origin, and the
+        // write can be rejected outright. Silently doing nothing reads as a
+        // broken button, so both outcomes get a label.
+        var flash = function (text) {
+          var label = $('copyLabel');
+          if (!label) return;
+          label.textContent = text;
+          setTimeout(function () { label.textContent = 'Copy report'; }, 1800);
+        };
         if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(lines.join('\n')).then(function () {
-            var label = $('copyLabel');
-            if (!label) return;
-            label.textContent = 'Copied';
-            setTimeout(function () { label.textContent = 'Copy report'; }, 1800);
-          }, function () {});
+          navigator.clipboard.writeText(lines.join('\n')).then(
+            function () { flash('Copied'); },
+            function () { flash('Copy failed'); }
+          );
+        } else {
+          flash('Copy unavailable');
         }
       });
     }
-  }
-
-  /* ---------------- Demo fallback ---------------- */
-
-  function demoData(q) {
-    var isUrl = /youtube\.com|youtu\.be/.test(q);
-    return {
-      video_title: isUrl ? 'YouTube video (demo)' : '"' + q + '"',
-      video_id: isUrl ? 'demo' : null,
-      claims: [
-        {
-          claim: 'The video presents a single chronological sequence of events as settled fact.',
-          verdict: 'Mixed',
-          explanation: 'Popular history videos tend to compress complex timelines. Scholarship indexed on cambridge.org and historians.org generally shows more overlapping causes and regional variation than one linear narrative allows.',
-          sources: ['cambridge.org', 'historians.org', 'jstor.org']
-        },
-        {
-          claim: 'Key figures are given clear motives that fully explain the outcome.',
-          verdict: 'Supported',
-          explanation: 'Primary documents held at archives.gov and monographs from major university presses do record the stated motives of prominent actors, though historians continue to debate how decisive those motives actually were.',
-          sources: ['archives.gov', 'hup.harvard.edu', 'yalebooks.yale.edu']
-        },
-        {
-          claim: 'A precise casualty figure is asserted for the event.',
-          verdict: 'Insufficient Evidence',
-          explanation: 'Exact numbers for ancient and early-modern events are rarely recoverable with confidence. Collections at loc.gov and journals on academic.oup.com typically present ranges and note the limits of surviving evidence.',
-          sources: ['loc.gov', 'academic.oup.com', 'jstor.org']
-        }
-      ],
-      overall_assessment: 'This is a sample analysis generated in your browser. In live mode Claimifi.biz reads the real transcript, identifies the actual claims, and checks each one against the 32 trusted sources. The structure shown here matches what the live version returns.',
-      sources_used: ['historians.org', 'cambridge.org', 'archives.gov', 'loc.gov', 'jstor.org', 'hup.harvard.edu'],
-      note: 'Demo mode — no analysis was performed on a real transcript.'
-    };
   }
 
   /* ---------------- Run ---------------- */
@@ -217,6 +245,8 @@
 
     running = true;
     btn.disabled = true;
+    setBusy(true);
+    announce('Analyzing. This usually takes about a minute.');
     renderLoading();
     results.scrollIntoView({ block: 'start' });
 
@@ -237,41 +267,43 @@
     var cleanup = function () {
       running = false;
       btn.disabled = false;
+      setBusy(false);
       timers.forEach(clearTimeout);
       clearInterval(tick);
     };
 
     var ctrl = new AbortController();
     var killer = setTimeout(function () { ctrl.abort(); }, REQUEST_TIMEOUT_MS);
-    var isUrl = /youtube\.com|youtu\.be/.test(q);
-
-    // Set as soon as a response arrives. A fact-checker must never present
-    // sample claims as real, so the demo fallback is confined to the case where
-    // the request never reached the server at all.
-    var responded = false;
 
     fetch('/api/analyze', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(isUrl ? { url: q } : { title: q }),
+      body: JSON.stringify(looksLikeVideo(q) ? { url: q } : { title: q }),
       signal: ctrl.signal
     })
     .then(function (res) {
       clearTimeout(killer);
-      responded = true;
       if (res.ok) {
-        return res.json().then(function (d) { setStatus('live', 'Live'); renderAnalysis(d, 'live'); });
+        return res.json().then(function (d) {
+          setStatus('live', 'Live');
+          renderAnalysis(d);
+          announce((d.basis === 'title'
+            ? 'Title-only analysis complete, no transcript was read. '
+            : 'Analysis complete. ') + ((d.claims || []).length) + ' claims checked.');
+        });
       }
+      // A non-JSON body is normal for an error served by an edge proxy rather
+      // than by this app, so parse defensively and fall back to the status.
       return res.json().catch(function () { return {}; }).then(function (err) {
-        // 503 means the server is healthy but has no Grok key. That is the one
-        // case where showing the sample analysis is honest.
-        if (res.status === 503) {
-          setStatus('demo', 'Demo mode');
-          renderAnalysis(demoData(q), 'demo');
-          return;
+        if (res.status === 503 && err.reason === 'no_api_key') {
+          // The server is up but has no Grok key, so nothing can be analysed.
+          // It is still reported as an error: showing sample verdicts here
+          // would be indistinguishable from a real result, on a page whose
+          // whole purpose is telling those two apart.
+          setStatus('demo', 'Not configured');
         }
         renderError(
-          typeof err.detail === 'string' ? err.detail : 'The server returned an error (' + res.status + ').',
+          detailText(err.detail, res.status),
           res.status >= 500 || res.status === 429
         );
       });
@@ -280,14 +312,12 @@
       clearTimeout(killer);
       if (e && e.name === 'AbortError') {
         renderError('The analysis ran past three minutes and was stopped. Try a shorter video.', true);
-      } else if (responded) {
-        // The server answered, but the reply could not be read or rendered.
-        console.error('Failed to render the analysis:', e);
-        renderError('The analysis came back in a form this page could not read. Please try again.', true);
       } else {
-        // Never reached the server: offline, DNS, or the service is down.
-        setStatus('demo', 'Demo mode');
-        renderAnalysis(demoData(q), 'demo');
+        // Offline, DNS, a dropped connection, or a reply this page could not
+        // read. Every one of them is a failure to report, never a cue to
+        // invent an analysis: this is a fact-checker.
+        console.error('Analysis request failed:', e);
+        renderError('The connection was interrupted before the analysis came back. Please try again.', true);
       }
     })
     .then(cleanup, cleanup);
@@ -297,13 +327,26 @@
   input.addEventListener('keydown', function (e) { if (e.key === 'Enter') run(); });
 
   Array.prototype.forEach.call(document.querySelectorAll('.chip'), function (c) {
-    c.addEventListener('click', function () { input.value = c.textContent; run(); });
+    c.addEventListener('click', function () {
+      // Guarded: otherwise the box shows one query while the panel below still
+      // shows the results of another.
+      if (running) return;
+      input.value = c.textContent;
+      run();
+    });
   });
 
 
-  // Deep link: /app?q=... prefills and runs immediately.
+  // Deep link: /app?q=... prefills the box. It deliberately does not run on
+  // its own — an analysis costs an API call and a slice of the visitor's
+  // quota, and a link should not be able to spend either without a click.
   try {
     var q0 = new URLSearchParams(window.location.search).get('q');
-    if (q0) { input.value = q0.slice(0, 300); input.focus(); }
+    if (q0) {
+      // 300 is the server's title limit; a pasted URL may legitimately be
+      // longer, so only the title path gets clipped.
+      input.value = looksLikeVideo(q0) ? q0.slice(0, 2000) : q0.slice(0, 300);
+      input.focus();
+    }
   } catch (e) { /* URLSearchParams unavailable */ }
 })();

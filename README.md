@@ -36,11 +36,22 @@ No Dockerfile and no `railway.toml` are needed (Config-as-Code is deprecated).
 
 | Variable | Required | Notes |
 | --- | --- | --- |
-| `XAI_API_KEY` | **Yes** | From https://console.x.ai. Without it the site serves demo results only. |
+| `XAI_API_KEY` | **Yes** | From https://console.x.ai. Without it `/api/analyze` returns `503` with `"reason": "no_api_key"` and the page says so. There is no demo mode: a fact-checker must never show invented verdicts. |
 | `GROK_MODEL` | No | Defaults to `grok-4`. |
-| `ALLOWED_ORIGINS` | No | Defaults to `*`. Set to `https://claimifi.biz` to lock down the API. |
+| `ALLOWED_ORIGINS` | No | Comma-separated. Defaults to `SITE_URL` and its `www.` form — **not** `*`, because `/api/analyze` is unauthenticated and costs money per call. `*` alone is accepted; `*` mixed with explicit origins is refused at startup. |
 | `SITE_URL` | No | Canonical origin for `robots.txt` and `sitemap.xml`. Defaults to `https://claimifi.biz` — **set this on any other deploy** or the sitemap advertises the wrong host. |
-| `TRANSCRIPT_HTTP_TIMEOUT` | No | Per-request bound on YouTube calls, in seconds. Default `12`. |
+| `TRANSCRIPT_TIMEOUT` | No | Total budget for one transcript fetch, in seconds. Default `45`. |
+| `TRANSCRIPT_HTTP_TIMEOUT` | No | Ceiling on any single YouTube call, in seconds. Default `10`. The real bound is `TRANSCRIPT_TIMEOUT`: one fetch issues several calls and the thread cannot be cancelled once started, so the session tracks a wall-clock deadline across all of them. |
+| `TRANSCRIPT_WORKERS` | No | Concurrent transcript fetches allowed in flight. Default `8`. Beyond this, `/api/analyze` returns 503 rather than starting work nobody is waiting for. |
+| `GLOBAL_RATE_LIMIT_REQUESTS` | No | Analyses per window across *all* callers, so many IPs cannot together bypass the per-IP limit. Default `300`. `0` disables. |
+| `GLOBAL_RATE_LIMIT_WINDOW` | No | Window for the global limit, in seconds. Default `3600`. |
+| `MAX_RATE_BUCKETS` | No | Hard cap on rate-limit buckets held in memory. Default `20000`. |
+| `GROK_TIMEOUT` | No | Seconds to wait on xAI. Default `120`. |
+| `GROK_MAX_TOKENS` | No | Output budget per analysis. Default `8000`. A reply cut off here returns 502 rather than being reported as malformed. |
+| `GROK_TEMPERATURE` | No | Default `0.2`. |
+| `MAX_TRANSCRIPT_CHARS` | No | Transcript characters sent to Grok. Default `100000`. |
+| `XAI_BASE_URL` | No | Default `https://api.x.ai/v1`. |
+| `LOG_LEVEL` | No | `DEBUG`/`INFO`/`WARNING`/`ERROR`/`CRITICAL`. Default `INFO`. An unrecognised value logs a warning and falls back instead of failing to boot. |
 | `RATE_LIMIT_REQUESTS` | No | Analyses per IP per window. Default `10`. `0` disables. |
 | `RATE_LIMIT_WINDOW` | No | Window in seconds. Default `600`. |
 | `WEBSHARE_PROXY_USERNAME` / `WEBSHARE_PROXY_PASSWORD` | See below | Residential proxy for transcript fetching. |
@@ -58,7 +69,8 @@ Do **not** set `PORT` yourself — Railway injects it and must match the domain'
   ```
   `--timeout-keep-alive 120` keeps long analyses from being cut off. Rate limiting
   reads the rightmost `X-Forwarded-For` hop — the address Railway itself observed —
-  because anything further left is supplied by the caller and can be forged.
+  because anything further left is supplied by the caller and can be forged. IPv6
+  addresses are bucketed by `/64`, since a residential customer holds the whole block.
 - **Healthcheck Path:** `/health`
 - **Serverless:** leave disabled. An analysis can run for a minute or more; cold starts on
   top of that push requests past the client timeout.
@@ -103,8 +115,21 @@ touches YouTube.
 | `GET /app` | Analyzer; accepts `?q=` to prefill the input |
 | `GET /health` | Liveness + configuration status |
 | `GET /api/config` | Tells the frontend whether live analysis is available |
-| `POST /api/analyze` | `{"url": "..."}` or `{"title": "..."}` |
+| `POST /api/analyze` | `{"url": "..."}` (max 2000 chars) or `{"title": "..."}` (3–300 chars) |
 | `GET /robots.txt`, `/sitemap.xml` | SEO |
+
+`POST /api/analyze` failure codes: `400` malformed input, or a bare video ID sent as a
+title; `403` age-restricted video; `404` no captions / video unavailable; `422` empty or
+too-short transcript, or a pydantic validation error (whose `detail` is a **list**, not a
+string); `429` per-IP rate limit; `503` no `XAI_API_KEY` (carrying `"reason": "no_api_key"`),
+global budget reached, or too many fetches in flight; `502` upstream failure; `504` timeout.
+
+Only `502`, `503` and `504` refund the caller's rate-limit slot. A `404` for a captionless
+video is an answer about the video the caller chose, and charging for it is what keeps the
+transcript path metered at all.
+
+The response carries `basis: "transcript" | "title"`. A `title` analysis never read the
+video, and the page marks it as such — do not present the two identically.
 
 The interactive API docs (`/docs`, `/redoc`, `/openapi.json`) are disabled.
 

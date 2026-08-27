@@ -1,0 +1,4 @@
+# Test-only. Deliberately not in requirements.txt: the deploy should not
+# install a test runner.
+-r requirements.txt
+pytest>=8.0,<10.0
