@@ -14,7 +14,7 @@ URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 @pytest.fixture
 def live(client, monkeypatch, analysis):
     """A fully configured app with both network boundaries stubbed."""
-    module, c = client(XAI_API_KEY="k", RATE_LIMIT_REQUESTS=0, GLOBAL_RATE_LIMIT_REQUESTS=0)
+    module, c = client(XAI_API_KEY="k", ANALYSIS_ENABLED=1, RATE_LIMIT_REQUESTS=0, GLOBAL_RATE_LIMIT_REQUESTS=0)
     monkeypatch.setattr(module, "call_grok", AsyncMock(return_value=analysis))
     monkeypatch.setattr(
         module, "_fetch_transcript_sync", lambda vid: "Rome fell in 476 AD. " * 10
@@ -136,7 +136,7 @@ def test_off_list_sources_are_dropped(live):
 def test_sources_used_is_not_fabricated(client, monkeypatch):
     """Reporting six trusted domains the model never cited is fabricated
     provenance on a product whose premise is that verdicts are sourced."""
-    module, c = client(XAI_API_KEY="k", RATE_LIMIT_REQUESTS=0)
+    module, c = client(XAI_API_KEY="k", ANALYSIS_ENABLED=1, RATE_LIMIT_REQUESTS=0)
     monkeypatch.setattr(
         module,
         "call_grok",
@@ -155,7 +155,7 @@ def test_sources_used_is_not_fabricated(client, monkeypatch):
 def test_missing_api_key_is_503_with_a_machine_readable_reason(client):
     """The frontend treats this one 503 differently from every other 503, so it
     needs a marker that a WAF or load balancer cannot accidentally produce."""
-    _, c = client(RATE_LIMIT_REQUESTS=0)
+    _, c = client(RATE_LIMIT_REQUESTS=0, ANALYSIS_ENABLED=1)
     r = c.post("/api/analyze", json={"title": "The Fall of Rome"})
     assert r.status_code == 503
     assert r.json()["reason"] == "no_api_key"
@@ -167,7 +167,7 @@ def test_rejected_api_key_is_502_not_503(client, monkeypatch, respx_free_transpo
     allowed to treat as an expected, non-error state."""
     import httpx
 
-    module, c = client(XAI_API_KEY="bad-key", RATE_LIMIT_REQUESTS=0)
+    module, c = client(XAI_API_KEY="bad-key", RATE_LIMIT_REQUESTS=0, ANALYSIS_ENABLED=1)
 
     async def unauthorized(*args, **kwargs):
         return httpx.Response(401, json={"error": "invalid api key"})
@@ -241,7 +241,7 @@ def test_proxy_hint_is_omitted_when_a_proxy_is_configured(client, monkeypatch):
     """Telling the operator to set env vars they already set is noise that hides
     the real cause (usually the wrong Webshare product)."""
     module, c = client(
-        XAI_API_KEY="k",
+        XAI_API_KEY="k", ANALYSIS_ENABLED=1,
         RATE_LIMIT_REQUESTS=0,
         WEBSHARE_PROXY_USERNAME="u",
         WEBSHARE_PROXY_PASSWORD="p",
@@ -255,7 +255,7 @@ def test_proxy_hint_is_omitted_when_a_proxy_is_configured(client, monkeypatch):
     detail = c.post("/api/analyze", json={"url": URL}).json()["detail"]
     assert "WEBSHARE_PROXY_USERNAME" not in detail
 
-    module2, c2 = client(XAI_API_KEY="k", RATE_LIMIT_REQUESTS=0)
+    module2, c2 = client(XAI_API_KEY="k", ANALYSIS_ENABLED=1, RATE_LIMIT_REQUESTS=0)
     monkeypatch.setattr(module2, "_fetch_transcript_sync", raise_it)
     detail2 = c2.post("/api/analyze", json={"url": URL}).json()["detail"]
     assert "WEBSHARE_PROXY_USERNAME" in detail2
@@ -276,7 +276,7 @@ def test_short_transcript_is_422(live, monkeypatch):
 def test_transcript_timeout_is_504(client, monkeypatch, analysis):
     import time
 
-    module, c = client(XAI_API_KEY="k", RATE_LIMIT_REQUESTS=0, TRANSCRIPT_TIMEOUT=0.3)
+    module, c = client(XAI_API_KEY="k", ANALYSIS_ENABLED=1, RATE_LIMIT_REQUESTS=0, TRANSCRIPT_TIMEOUT=0.3)
     monkeypatch.setattr(module, "call_grok", AsyncMock(return_value=analysis))
     monkeypatch.setattr(module, "_fetch_transcript_sync", lambda vid: time.sleep(3) or "x")
     assert c.post("/api/analyze", json={"url": URL}).status_code == 504
@@ -290,7 +290,7 @@ def test_saturated_transcript_pool_rejects_rather_than_queueing(client, monkeypa
     import time
 
     module, c = client(
-        XAI_API_KEY="k", RATE_LIMIT_REQUESTS=0, TRANSCRIPT_WORKERS=1, TRANSCRIPT_TIMEOUT=5
+        XAI_API_KEY="k", ANALYSIS_ENABLED=1, RATE_LIMIT_REQUESTS=0, TRANSCRIPT_WORKERS=1, TRANSCRIPT_TIMEOUT=5
     )
     monkeypatch.setattr(module, "call_grok", AsyncMock(return_value=analysis))
     monkeypatch.setattr(module, "_fetch_transcript_sync", lambda vid: time.sleep(1.5) or "word " * 50)
@@ -321,3 +321,123 @@ def test_saturated_transcript_pool_rejects_rather_than_queueing(client, monkeypa
     # is served rather than shed.
     time.sleep(2)
     assert c.post("/api/analyze", json={"url": URL}).status_code == 200
+
+
+# --- Kill switch and daily budget -------------------------------------------
+
+
+def test_analysis_is_off_by_default(client):
+    """An unauthenticated endpoint that spends money must be opted into."""
+    module, c = client(XAI_API_KEY="k")
+    assert module.ANALYSIS_ENABLED is False
+    r = c.post("/api/analyze", json={"title": "The Fall of Rome"})
+    assert r.status_code == 503
+    assert r.json()["reason"] == "analysis_disabled"
+
+
+def test_paused_is_distinct_from_unconfigured(client):
+    """Two different 503s: one is a deliberate pause, one an unfinished deploy."""
+    _, paused = client(XAI_API_KEY="k")
+    assert paused.get("/api/config").json()["status"] == "paused"
+
+    _, unconfigured = client(ANALYSIS_ENABLED=1)
+    assert unconfigured.get("/api/config").json()["status"] == "unconfigured"
+    assert (
+        unconfigured.post("/api/analyze", json={"title": "The Fall of Rome"}).json()["reason"]
+        == "no_api_key"
+    )
+
+
+def test_pausing_costs_the_visitor_nothing(client):
+    """No rate-limit slot, no transcript fetch: there is nothing to meter."""
+    module, c = client(XAI_API_KEY="k", RATE_LIMIT_REQUESTS=2)
+
+    def explode(*args, **kwargs):  # pragma: no cover - must never run
+        raise AssertionError("a paused service fetched a transcript")
+
+    module.get_transcript = explode
+    for _ in range(5):
+        r = c.post("/api/analyze", json={"url": "https://youtu.be/dQw4w9WgXcQ"})
+        assert r.status_code == 503
+        assert r.json()["reason"] == "analysis_disabled"
+    # Never 429: a paused service must not exhaust anyone's quota.
+
+
+def test_config_reports_live_only_when_it_really_is(client):
+    _, c = client(XAI_API_KEY="k", ANALYSIS_ENABLED=1)
+    body = c.get("/api/config").json()
+    assert body["status"] == "live" and body["live"] is True
+
+
+def test_spend_is_recorded_from_the_usage_block(client, monkeypatch):
+    """The question 'what did we spend' had no answer before this."""
+    import asyncio, httpx
+
+    module, c = client(XAI_API_KEY="k", ANALYSIS_ENABLED=1, GROK_MODEL="grok-4.3",
+                       RATE_LIMIT_REQUESTS=0)
+
+    async def ok(*args, **kwargs):
+        return httpx.Response(200, json={
+            "choices": [{"message": {"content": '{"claims": [], "overall_assessment": "x",'
+                                                ' "sources_used": []}'}}],
+            "usage": {"prompt_tokens": 1_000_000, "completion_tokens": 0},
+        })
+
+    module._grok_client = type("Stub", (), {"post": staticmethod(ok)})()
+    assert c.post("/api/analyze", json={"title": "The Fall of Rome"}).status_code == 200
+
+    budget = c.get("/health").json()["budget"]
+    # 1M input tokens on grok-4.3 is exactly its $1.25 input rate.
+    assert budget["spent_today_usd"] == pytest.approx(1.25)
+    assert budget["calls_today"] == 1
+
+
+def test_the_daily_budget_stops_further_calls(client):
+    import httpx
+
+    module, c = client(XAI_API_KEY="k", ANALYSIS_ENABLED=1, GROK_MODEL="grok-4.3",
+                       RATE_LIMIT_REQUESTS=0, DAILY_BUDGET_USD=1.0)
+
+    calls = {"n": 0}
+
+    async def ok(*args, **kwargs):
+        calls["n"] += 1
+        return httpx.Response(200, json={
+            "choices": [{"message": {"content": '{"claims": [], "overall_assessment": "x",'
+                                                ' "sources_used": []}'}}],
+            "usage": {"prompt_tokens": 1_000_000, "completion_tokens": 0},
+        })
+
+    module._grok_client = type("Stub", (), {"post": staticmethod(ok)})()
+    assert c.post("/api/analyze", json={"title": "The Fall of Rome"}).status_code == 200
+    second = c.post("/api/analyze", json={"title": "The Fall of Rome"})
+    assert second.status_code == 503
+    assert "budget" in second.json()["detail"].lower()
+    # The ceiling is enforced *before* the spend, not after it.
+    assert calls["n"] == 1
+
+
+def test_a_missing_usage_block_is_charged_as_worst_case(client):
+    """An endpoint that stops reporting usage must not become unmetered."""
+    import httpx
+
+    module, c = client(XAI_API_KEY="k", ANALYSIS_ENABLED=1, GROK_MODEL="grok-4.3",
+                       RATE_LIMIT_REQUESTS=0, GROK_MAX_TOKENS=1_000_000)
+
+    async def no_usage(*args, **kwargs):
+        return httpx.Response(200, json={
+            "choices": [{"message": {"content": '{"claims": [], "overall_assessment": "x",'
+                                                ' "sources_used": []}'}}],
+        })
+
+    module._grok_client = type("Stub", (), {"post": staticmethod(no_usage)})()
+    assert c.post("/api/analyze", json={"title": "The Fall of Rome"}).status_code == 200
+    # Charged at the full output budget: 1M tokens x $2.50 on grok-4.3.
+    assert c.get("/health").json()["budget"]["spent_today_usd"] == pytest.approx(2.50)
+
+
+def test_an_unlisted_model_bills_at_the_priciest_known_rate(client):
+    """A wrong guess must stop early rather than overspend."""
+    module, _ = client(GROK_MODEL="grok-99-unreleased")
+    known = max(module.MODEL_PRICING.values(), key=lambda p: p[1])
+    assert module._estimate_cost("grok-99-unreleased", 0, 1_000_000) == pytest.approx(known[1])

@@ -112,7 +112,7 @@ def test_listed_origin_is_allowed(client):
 # Routes
 # --------------------------------------------------------------------------
 def test_health_reports_configuration(client):
-    _, c = client(XAI_API_KEY="k", WEBSHARE_PROXY_USERNAME="u", WEBSHARE_PROXY_PASSWORD="p")
+    _, c = client(XAI_API_KEY="k", ANALYSIS_ENABLED=1, WEBSHARE_PROXY_USERNAME="u", WEBSHARE_PROXY_PASSWORD="p")
     body = c.get("/health").json()
     assert body["status"] == "ok"
     assert body["grok_key_configured"] is True
@@ -122,7 +122,7 @@ def test_health_reports_configuration(client):
 def test_config_endpoint_advertises_liveness(client):
     _, c = client()
     assert c.get("/api/config").json()["live"] is False
-    _, c2 = client(XAI_API_KEY="k")
+    _, c2 = client(XAI_API_KEY="k", ANALYSIS_ENABLED=1)
     assert c2.get("/api/config").json()["live"] is True
 
 
@@ -263,7 +263,7 @@ def test_every_env_var_the_code_reads_is_documented():
     """A knob nobody can find is a knob that does not exist."""
     source = (REPO / "main.py").read_text(encoding="utf-8")
     read = set(re.findall(r'os\.getenv\(\s*"([A-Z_0-9]+)"', source))
-    read |= set(re.findall(r'_env_(?:int|float)\(\s*"([A-Z_0-9]+)"', source))
+    read |= set(re.findall(r'_env_(?:int|float|bool)\(\s*"([A-Z_0-9]+)"', source))
     read.discard("PORT")  # injected by the platform; documented as "do not set"
 
     docs = (REPO / "README.md").read_text(encoding="utf-8") + (

@@ -19,7 +19,7 @@ def _stub_grok(module, monkeypatch, analysis):
 def test_ipv6_addresses_in_one_64_share_a_bucket(client, monkeypatch, analysis):
     """A residential IPv6 customer holds a whole /64 and can pick any address
     in it, so keying on the exact address handed out unlimited free quotas."""
-    module, c = client(XAI_API_KEY="k", RATE_LIMIT_REQUESTS=3, RATE_LIMIT_WINDOW=600)
+    module, c = client(XAI_API_KEY="k", ANALYSIS_ENABLED=1, RATE_LIMIT_REQUESTS=3, RATE_LIMIT_WINDOW=600)
     _stub_grok(module, monkeypatch, analysis)
 
     codes = [
@@ -31,7 +31,7 @@ def test_ipv6_addresses_in_one_64_share_a_bucket(client, monkeypatch, analysis):
 
 
 def test_different_64_blocks_are_separate(client, monkeypatch, analysis):
-    module, c = client(XAI_API_KEY="k", RATE_LIMIT_REQUESTS=1, RATE_LIMIT_WINDOW=600)
+    module, c = client(XAI_API_KEY="k", ANALYSIS_ENABLED=1, RATE_LIMIT_REQUESTS=1, RATE_LIMIT_WINDOW=600)
     _stub_grok(module, monkeypatch, analysis)
 
     assert c.post("/api/analyze", json=TITLE, headers=xff("2001:db8::1")).status_code == 200
@@ -40,7 +40,7 @@ def test_different_64_blocks_are_separate(client, monkeypatch, analysis):
 
 def test_forged_left_hops_are_ignored(client, monkeypatch, analysis):
     """Rotating the leftmost X-Forwarded-For entry must not mint new quotas."""
-    module, c = client(XAI_API_KEY="k", RATE_LIMIT_REQUESTS=2, RATE_LIMIT_WINDOW=600)
+    module, c = client(XAI_API_KEY="k", ANALYSIS_ENABLED=1, RATE_LIMIT_REQUESTS=2, RATE_LIMIT_WINDOW=600)
     _stub_grok(module, monkeypatch, analysis)
 
     codes = []
@@ -58,7 +58,7 @@ def test_forged_left_hops_are_ignored(client, monkeypatch, analysis):
 def test_global_ceiling_applies_across_distinct_ips(client, monkeypatch, analysis):
     """Many IPs must not add up to unlimited spend."""
     module, c = client(
-        XAI_API_KEY="k",
+        XAI_API_KEY="k", ANALYSIS_ENABLED=1,
         RATE_LIMIT_REQUESTS=100,
         GLOBAL_RATE_LIMIT_REQUESTS=3,
         GLOBAL_RATE_LIMIT_WINDOW=3600,
@@ -88,7 +88,7 @@ def test_server_side_transcript_failures_refund_the_slot(client, monkeypatch, an
     """An IP block or a timeout is the service failing, not the visitor
     spending. Charging for it burned all ten slots and locked the visitor out of
     the title-only fallback the FAQ points them to."""
-    module, c = client(XAI_API_KEY="k", RATE_LIMIT_REQUESTS=2, RATE_LIMIT_WINDOW=600)
+    module, c = client(XAI_API_KEY="k", ANALYSIS_ENABLED=1, RATE_LIMIT_REQUESTS=2, RATE_LIMIT_WINDOW=600)
     _stub_grok(module, monkeypatch, analysis)
     _fail_transcript_with(module, monkeypatch, status)
 
@@ -107,7 +107,7 @@ def test_caller_chosen_transcript_failures_still_cost_a_slot(client, monkeypatch
     bandwidth and a worker thread, while neither counter ever moves.
     """
     module, c = client(
-        XAI_API_KEY="k", RATE_LIMIT_REQUESTS=2, RATE_LIMIT_WINDOW=600, GLOBAL_RATE_LIMIT_REQUESTS=0
+        XAI_API_KEY="k", ANALYSIS_ENABLED=1, RATE_LIMIT_REQUESTS=2, RATE_LIMIT_WINDOW=600, GLOBAL_RATE_LIMIT_REQUESTS=0
     )
     _stub_grok(module, monkeypatch, analysis)
     _fail_transcript_with(module, monkeypatch, status)
@@ -122,7 +122,7 @@ def test_caller_chosen_transcript_failures_still_cost_a_slot(client, monkeypatch
 def test_a_caller_cannot_loop_failing_fetches_past_the_global_budget(client, monkeypatch, analysis):
     """The global ceiling is the backstop when the per-IP limit is generous."""
     module, c = client(
-        XAI_API_KEY="k",
+        XAI_API_KEY="k", ANALYSIS_ENABLED=1,
         RATE_LIMIT_REQUESTS=100,
         GLOBAL_RATE_LIMIT_REQUESTS=3,
         GLOBAL_RATE_LIMIT_WINDOW=3600,
@@ -138,7 +138,7 @@ def test_a_caller_cannot_loop_failing_fetches_past_the_global_budget(client, mon
 
 
 def test_successful_analysis_still_consumes_a_slot(client, monkeypatch, analysis):
-    module, c = client(XAI_API_KEY="k", RATE_LIMIT_REQUESTS=2, RATE_LIMIT_WINDOW=600)
+    module, c = client(XAI_API_KEY="k", ANALYSIS_ENABLED=1, RATE_LIMIT_REQUESTS=2, RATE_LIMIT_WINDOW=600)
     _stub_grok(module, monkeypatch, analysis)
     monkeypatch.setattr(module, "_fetch_transcript_sync", lambda vid: "word " * 50)
 
@@ -150,7 +150,7 @@ def test_successful_analysis_still_consumes_a_slot(client, monkeypatch, analysis
 
 
 def test_invalid_input_does_not_consume_a_slot(client, monkeypatch, analysis):
-    module, c = client(XAI_API_KEY="k", RATE_LIMIT_REQUESTS=1, RATE_LIMIT_WINDOW=600)
+    module, c = client(XAI_API_KEY="k", ANALYSIS_ENABLED=1, RATE_LIMIT_REQUESTS=1, RATE_LIMIT_WINDOW=600)
     _stub_grok(module, monkeypatch, analysis)
 
     assert c.post("/api/analyze", json={"url": "not a link"}, headers=xff("198.51.100.5")).status_code == 400
@@ -162,7 +162,7 @@ def test_bucket_sweep_actually_collects(client, monkeypatch, analysis):
     caller had just written into the only bucket it touched — so a flood of
     one-shot addresses was never collected and the dict grew unboundedly."""
     module, c = client(
-        XAI_API_KEY="k", RATE_LIMIT_REQUESTS=5, RATE_LIMIT_WINDOW=600, MAX_RATE_BUCKETS=1000
+        XAI_API_KEY="k", ANALYSIS_ENABLED=1, RATE_LIMIT_REQUESTS=5, RATE_LIMIT_WINDOW=600, MAX_RATE_BUCKETS=1000
     )
     _stub_grok(module, monkeypatch, analysis)
 
@@ -175,7 +175,7 @@ def test_bucket_sweep_actually_collects(client, monkeypatch, analysis):
 
 def test_rate_limit_message_reads_correctly_for_short_windows(client, monkeypatch, analysis):
     """A 60s window used to render as 'per 1 minutes'."""
-    module, c = client(XAI_API_KEY="k", RATE_LIMIT_REQUESTS=1, RATE_LIMIT_WINDOW=60)
+    module, c = client(XAI_API_KEY="k", ANALYSIS_ENABLED=1, RATE_LIMIT_REQUESTS=1, RATE_LIMIT_WINDOW=60)
     _stub_grok(module, monkeypatch, analysis)
 
     c.post("/api/analyze", json=TITLE, headers=xff("203.0.113.30"))
@@ -185,7 +185,7 @@ def test_rate_limit_message_reads_correctly_for_short_windows(client, monkeypatc
 
 
 def test_rate_limit_can_be_disabled(client, monkeypatch, analysis):
-    module, c = client(XAI_API_KEY="k", RATE_LIMIT_REQUESTS=0, GLOBAL_RATE_LIMIT_REQUESTS=0)
+    module, c = client(XAI_API_KEY="k", ANALYSIS_ENABLED=1, RATE_LIMIT_REQUESTS=0, GLOBAL_RATE_LIMIT_REQUESTS=0)
     _stub_grok(module, monkeypatch, analysis)
 
     for _ in range(5):
@@ -222,7 +222,7 @@ def test_port_suffixed_addresses_are_still_identities(client, addr, expected):
 def test_the_window_expires(client, monkeypatch, analysis):
     """Only the hard size cap was asserted before; a limiter that never released
     a slot would have passed every one of these tests."""
-    module, c = client(XAI_API_KEY="k", RATE_LIMIT_REQUESTS=2, RATE_LIMIT_WINDOW=60)
+    module, c = client(XAI_API_KEY="k", ANALYSIS_ENABLED=1, RATE_LIMIT_REQUESTS=2, RATE_LIMIT_WINDOW=60)
     _stub_grok(module, monkeypatch, analysis)
 
     now = [1000.0]
@@ -238,7 +238,7 @@ def test_the_window_expires(client, monkeypatch, analysis):
 
 
 def test_the_window_slides_rather_than_resetting(client, monkeypatch, analysis):
-    module, c = client(XAI_API_KEY="k", RATE_LIMIT_REQUESTS=2, RATE_LIMIT_WINDOW=60)
+    module, c = client(XAI_API_KEY="k", ANALYSIS_ENABLED=1, RATE_LIMIT_REQUESTS=2, RATE_LIMIT_WINDOW=60)
     _stub_grok(module, monkeypatch, analysis)
 
     now = [1000.0]
@@ -258,7 +258,7 @@ def test_the_sweep_evicts_the_coldest_buckets_first(client, monkeypatch, analysi
     """OrderedDict order is what makes the cap meaningful: evicting a hot bucket
     would hand its owner a fresh quota."""
     module, c = client(
-        XAI_API_KEY="k", RATE_LIMIT_REQUESTS=5, RATE_LIMIT_WINDOW=600, MAX_RATE_BUCKETS=1000
+        XAI_API_KEY="k", ANALYSIS_ENABLED=1, RATE_LIMIT_REQUESTS=5, RATE_LIMIT_WINDOW=600, MAX_RATE_BUCKETS=1000
     )
     _stub_grok(module, monkeypatch, analysis)
 
@@ -275,7 +275,7 @@ def test_the_sweep_evicts_the_coldest_buckets_first(client, monkeypatch, analysi
 
 
 def test_expired_buckets_are_collected_by_the_sweep(client, monkeypatch, analysis):
-    module, c = client(XAI_API_KEY="k", RATE_LIMIT_REQUESTS=5, RATE_LIMIT_WINDOW=60)
+    module, c = client(XAI_API_KEY="k", ANALYSIS_ENABLED=1, RATE_LIMIT_REQUESTS=5, RATE_LIMIT_WINDOW=60)
     _stub_grok(module, monkeypatch, analysis)
 
     now = [1000.0]
@@ -297,7 +297,7 @@ def test_expired_buckets_are_collected_by_the_sweep(client, monkeypatch, analysi
 def test_cdn_in_front_keeps_visitors_in_separate_buckets(client, monkeypatch, analysis):
     """With a CDN appending a hop, depth 2 must still see distinct visitors."""
     module, c = client(
-        XAI_API_KEY="k", RATE_LIMIT_REQUESTS=1, RATE_LIMIT_WINDOW=600, TRUSTED_PROXY_HOPS=2
+        XAI_API_KEY="k", ANALYSIS_ENABLED=1, RATE_LIMIT_REQUESTS=1, RATE_LIMIT_WINDOW=600, TRUSTED_PROXY_HOPS=2
     )
     _stub_grok(module, monkeypatch, analysis)
 
@@ -313,7 +313,7 @@ def test_cdn_in_front_keeps_visitors_in_separate_buckets(client, monkeypatch, an
 def test_wrong_depth_behind_a_cdn_collapses_every_visitor(client, monkeypatch, analysis):
     """The failure this setting exists to prevent, pinned so it stays visible."""
     module, c = client(
-        XAI_API_KEY="k", RATE_LIMIT_REQUESTS=1, RATE_LIMIT_WINDOW=600, TRUSTED_PROXY_HOPS=1
+        XAI_API_KEY="k", ANALYSIS_ENABLED=1, RATE_LIMIT_REQUESTS=1, RATE_LIMIT_WINDOW=600, TRUSTED_PROXY_HOPS=1
     )
     _stub_grok(module, monkeypatch, analysis)
 
@@ -328,7 +328,7 @@ def test_wrong_depth_behind_a_cdn_collapses_every_visitor(client, monkeypatch, a
 def test_forged_hops_cannot_mint_quotas_at_depth_2(client, monkeypatch, analysis):
     """Everything left of our own hops is caller-supplied. Rotating it must not help."""
     module, c = client(
-        XAI_API_KEY="k", RATE_LIMIT_REQUESTS=2, RATE_LIMIT_WINDOW=600, TRUSTED_PROXY_HOPS=2
+        XAI_API_KEY="k", ANALYSIS_ENABLED=1, RATE_LIMIT_REQUESTS=2, RATE_LIMIT_WINDOW=600, TRUSTED_PROXY_HOPS=2
     )
     _stub_grok(module, monkeypatch, analysis)
 
@@ -351,7 +351,7 @@ def test_header_shorter_than_configured_depth_falls_back_to_leftmost(client, mon
     the client the header can offer.
     """
     module, c = client(
-        XAI_API_KEY="k", RATE_LIMIT_REQUESTS=1, RATE_LIMIT_WINDOW=600, TRUSTED_PROXY_HOPS=3
+        XAI_API_KEY="k", ANALYSIS_ENABLED=1, RATE_LIMIT_REQUESTS=1, RATE_LIMIT_WINDOW=600, TRUSTED_PROXY_HOPS=3
     )
     _stub_grok(module, monkeypatch, analysis)
 

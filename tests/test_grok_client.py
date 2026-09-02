@@ -25,7 +25,10 @@ def grok(fresh_main, monkeypatch):
     import asyncio
 
     def _run(response, **env):
-        main = fresh_main(XAI_API_KEY="test-key", **env)
+        # These exercise call_grok itself, so the service is on and funded
+        # unless the individual test says otherwise.
+        env = {"XAI_API_KEY": "test-key", "ANALYSIS_ENABLED": 1, **env}
+        main = fresh_main(**env)
         sent = {}
 
         async def post(url, **kwargs):
@@ -158,7 +161,7 @@ def test_a_transport_error_is_502(grok):
 def test_a_missing_key_is_503_with_a_reason(fresh_main):
     import asyncio
 
-    main = fresh_main()
+    main = fresh_main(ANALYSIS_ENABLED=1)
     loop = asyncio.get_event_loop_policy().new_event_loop()
     try:
         with pytest.raises(HTTPException) as exc:
@@ -175,7 +178,7 @@ def test_a_missing_key_is_503_with_a_reason(fresh_main):
 def test_one_client_is_shared_across_requests(client, monkeypatch, analysis):
     """A fresh AsyncClient per request builds an ssl.SSLContext synchronously on
     the event loop, stalling every other in-flight request."""
-    module, c = client(XAI_API_KEY="k", RATE_LIMIT_REQUESTS=0)
+    module, c = client(XAI_API_KEY="k", ANALYSIS_ENABLED=1, RATE_LIMIT_REQUESTS=0)
     seen = []
 
     async def post(url, **kwargs):
@@ -196,7 +199,7 @@ def test_requests_before_startup_are_rejected_cleanly(fresh_main):
     AttributeError surfacing as a 500."""
     import asyncio
 
-    main = fresh_main(XAI_API_KEY="k")
+    main = fresh_main(XAI_API_KEY="k", ANALYSIS_ENABLED=1)
     main._grok_client = None
     loop = asyncio.get_event_loop_policy().new_event_loop()
     try:

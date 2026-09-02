@@ -63,12 +63,51 @@
     if (t) t.textContent = text;
   }
 
+  // Set by the config probe below, and again by any analysis that comes back
+  // 503/analysis_disabled - the switch can be thrown while the page is open.
+  var paused = false;
+
+  var PAUSED_MSG = 'AI analysis is switched off right now, so nothing can be ' +
+    'fact-checked at the moment. No verdicts are being generated — including ' +
+    'the examples on this page. Please check back later.';
+
+  // Three states, matching /api/config: a deliberate pause is not the same as
+  // an unfinished deploy, and neither is a working service.
+  var STATUS_LABELS = {
+    live: ['live', 'Live'],
+    paused: ['demo', 'Paused'],
+    unconfigured: ['demo', 'Not configured']
+  };
+
   fetch('/api/config', { cache: 'no-store' })
     .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
-    .then(function (cfg) { setStatus(cfg.live ? 'live' : 'demo', cfg.live ? 'Live' : 'Not configured'); })
+    .then(function (cfg) {
+      // `status` is newer than `live`; fall back so a stale cached page still works.
+      var key = cfg.status || (cfg.live ? 'live' : 'unconfigured');
+      var label = STATUS_LABELS[key] || STATUS_LABELS.unconfigured;
+      setStatus(label[0], label[1]);
+      if (key === 'paused') applyPaused();
+    })
     .catch(function () { setStatus('demo', 'Unavailable'); });
 
   if (!input || !results || !btn) return;
+
+  // Say so up front rather than letting someone type a URL, wait, and get an
+  // error. The input stays enabled so a pasted link is not lost on re-enable.
+  function applyPaused() {
+    paused = true;
+    if (!results || !btn) return;
+    btn.disabled = true;
+    Array.prototype.forEach.call(document.querySelectorAll('.chip'), function (c) {
+      c.disabled = true;
+    });
+    shell('demo', 'Paused',
+      '<div class="panel-body notice">' +
+        '<div class="label">Analysis is paused</div>' +
+        '<p>' + esc(PAUSED_MSG) + '</p>' +
+      '</div>');
+    announce('Analysis is currently switched off.');
+  }
 
   /* ---------------- Rendering ---------------- */
 
@@ -239,7 +278,7 @@
   var running = false;
 
   function run() {
-    if (running) return;
+    if (running || paused) return;
     var q = input.value.trim();
     if (!q) { input.focus(); return; }
 
@@ -295,6 +334,14 @@
       // A non-JSON body is normal for an error served by an edge proxy rather
       // than by this app, so parse defensively and fall back to the status.
       return res.json().catch(function () { return {}; }).then(function (err) {
+        if (res.status === 503 && err.reason === 'analysis_disabled') {
+          // Switched off since the page loaded. Fabricating a sample verdict
+          // here would be indistinguishable from a real one, on a page whose
+          // entire purpose is telling those two apart.
+          setStatus('demo', 'Paused');
+          applyPaused();
+          return;
+        }
         if (res.status === 503 && err.reason === 'no_api_key') {
           // The server is up but has no Grok key, so nothing can be analysed.
           // It is still reported as an error: showing sample verdicts here

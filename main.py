@@ -81,6 +81,18 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.getenv(name, "").strip().lower()
+    if not raw:
+        return default
+    if raw in {"1", "true", "yes", "on"}:
+        return True
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    log.warning("Invalid bool for %s=%r, using default %s", name, raw, default)
+    return default
+
+
 def _env_float(name: str, default: float) -> float:
     raw = os.getenv(name, "").strip()
     try:
@@ -100,7 +112,32 @@ GOOGLE_VERIFICATION_FILE = "googlec5bf5544cd107a90.html"
 
 XAI_API_KEY = os.getenv("XAI_API_KEY", "").strip()
 XAI_BASE_URL = os.getenv("XAI_BASE_URL", "https://api.x.ai/v1").rstrip("/")
-GROK_MODEL = os.getenv("GROK_MODEL", "grok-4").strip() or "grok-4"
+# grok-4 is no longer on xAI's published model list, and the dated grok-4-0709
+# snapshot was retired on 2026-05-15 (it redirects to grok-4.3). Pinning a
+# documented id means re-enabling analysis does not depend on how an unlisted
+# legacy alias happens to resolve that day.
+GROK_MODEL = os.getenv("GROK_MODEL", "grok-4.3").strip() or "grok-4.3"
+
+# Master switch for everything that costs money. Default off: /api/analyze is
+# unauthenticated, and a deploy that starts spending the moment a key is present
+# is the wrong default for a key that is already live in production. Turning it
+# on is a deliberate act.
+ANALYSIS_ENABLED = _env_bool("ANALYSIS_ENABLED", False)
+
+# Hard ceiling on spend per UTC day, in dollars. The rate limits cap *requests*;
+# this caps the bill, which is the thing actually worth bounding. 0 disables.
+DAILY_BUDGET_USD = _env_float("DAILY_BUDGET_USD", 2.0)
+
+# USD per million tokens, (input, output), from https://docs.x.ai/docs/models.
+# Only used to estimate spend against DAILY_BUDGET_USD - xAI's own invoice is
+# authoritative. An unlisted model bills at the most expensive known rate, so a
+# wrong guess stops early rather than overspending.
+MODEL_PRICING = {
+    "grok-4.3": (1.25, 2.50),
+    "grok-4.5": (2.00, 6.00),
+    "grok-4.6": (2.00, 6.00),
+}
+_FALLBACK_PRICING = max(MODEL_PRICING.values(), key=lambda p: p[1])
 
 GROK_TIMEOUT = _env_float("GROK_TIMEOUT", 120.0)
 GROK_MAX_TOKENS = _env_int("GROK_MAX_TOKENS", 8000)
@@ -330,6 +367,17 @@ class NotConfiguredError(HTTPException):
     reason = "no_api_key"
 
 
+class AnalysisDisabledError(HTTPException):
+    """503 meaning 'switched off on purpose', not 'broken' and not 'no key'.
+
+    The page has to tell these apart. A missing key is a deploy that was never
+    finished; this is a deliberate pause, and saying "not configured" would send
+    the operator hunting for a problem that does not exist.
+    """
+
+    reason = "analysis_disabled"
+
+
 class AnalyzeRequest(BaseModel):
     url: Optional[str] = Field(default=None, max_length=2000)
     title: Optional[str] = Field(default=None, max_length=300)
@@ -355,6 +403,93 @@ class AnalyzeResponse(BaseModel):
     # never saw the video.
     basis: str = "transcript"
     note: str = "Analysis powered by Grok. Always cross-check with primary sources."
+
+
+# ---------------------------------------------------------------------------
+# Spend accounting
+# ---------------------------------------------------------------------------
+# In-process and per-UTC-day. It resets on redeploy, so it is a safety brake and
+# not an accounting record - xAI's console is the source of truth. Understating
+# spend after a restart is the failure mode; that is why the request ceilings
+# stay in place underneath it rather than being replaced by this.
+_spend_day: Optional[int] = None
+_spend_usd: float = 0.0
+_spend_calls: int = 0
+_spend_lock = asyncio.Lock()
+
+
+def _utc_day(now: Optional[float] = None) -> int:
+    return int((now if now is not None else time.time()) // 86_400)
+
+
+def _estimate_cost(model: str, prompt_tokens: int, completion_tokens: int) -> float:
+    price_in, price_out = MODEL_PRICING.get(model, _FALLBACK_PRICING)
+    return (prompt_tokens * price_in + completion_tokens * price_out) / 1_000_000
+
+
+async def _budget_snapshot() -> Dict[str, Any]:
+    async with _spend_lock:
+        spent = _spend_usd if _spend_day == _utc_day() else 0.0
+        calls = _spend_calls if _spend_day == _utc_day() else 0
+    return {
+        "daily_budget_usd": DAILY_BUDGET_USD,
+        "spent_today_usd": round(spent, 4),
+        "calls_today": calls,
+    }
+
+
+async def enforce_budget() -> None:
+    """Refuse the call before it is made, once the day's budget is gone."""
+    if DAILY_BUDGET_USD <= 0:
+        return
+    async with _spend_lock:
+        global _spend_day, _spend_usd, _spend_calls
+        today = _utc_day()
+        if _spend_day != today:
+            _spend_day, _spend_usd, _spend_calls = today, 0.0, 0
+        if _spend_usd < DAILY_BUDGET_USD:
+            return
+    raise HTTPException(
+        status_code=503,
+        detail=(
+            "Claimifi.biz has reached its analysis budget for today. "
+            "It resets at midnight UTC."
+        ),
+        headers={"Retry-After": "3600"},
+    )
+
+
+async def record_spend(model: str, usage: Any) -> None:
+    """Bank what a completed call actually cost, from xAI's own usage block.
+
+    Charging the estimate rather than the request count is the point: a title
+    analysis and a 25k-token transcript differ by two orders of magnitude, and a
+    per-request ceiling prices them identically.
+    """
+    if not isinstance(usage, dict):
+        # No usage block means no way to know. Charge the worst case rather than
+        # nothing, or an endpoint that stops reporting usage becomes unmetered.
+        prompt_tokens, completion_tokens = 0, GROK_MAX_TOKENS
+    else:
+        try:
+            prompt_tokens = int(usage.get("prompt_tokens") or 0)
+            completion_tokens = int(usage.get("completion_tokens") or 0)
+        except (TypeError, ValueError):
+            prompt_tokens, completion_tokens = 0, GROK_MAX_TOKENS
+
+    cost = _estimate_cost(model, prompt_tokens, completion_tokens)
+    async with _spend_lock:
+        global _spend_day, _spend_usd, _spend_calls
+        today = _utc_day()
+        if _spend_day != today:
+            _spend_day, _spend_usd, _spend_calls = today, 0.0, 0
+        _spend_usd += cost
+        _spend_calls += 1
+        running, calls = _spend_usd, _spend_calls
+    log.info(
+        "Grok call: model=%s in=%s out=%s cost=$%.4f | today $%.4f over %s call(s)",
+        model, prompt_tokens, completion_tokens, cost, running, calls,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -989,11 +1124,20 @@ def _extract_json_object(raw: str) -> Dict[str, Any]:
 
 
 async def call_grok(transcript: str, video_context: str = "") -> Dict[str, Any]:
+    if not ANALYSIS_ENABLED:
+        raise AnalysisDisabledError(
+            status_code=503,
+            detail=(
+                "AI analysis is switched off right now, so Claimifi.biz cannot "
+                "check this video. Nothing has been analysed."
+            ),
+        )
     if not XAI_API_KEY:
         raise NotConfiguredError(
             status_code=503,
             detail="The fact-checking service is not configured (XAI_API_KEY is missing).",
         )
+    await enforce_budget()
 
     truncated = transcript[:MAX_TRANSCRIPT_CHARS]
     user_content = (
@@ -1090,6 +1234,7 @@ async def call_grok(transcript: str, video_context: str = "") -> Dict[str, Any]:
             ),
         )
 
+    await record_spend(GROK_MODEL, body.get("usage") if isinstance(body, dict) else None)
     return _extract_json_object(str(raw))
 
 
@@ -1287,6 +1432,8 @@ async def sitemap():
 async def health():
     return {
         "status": "ok",
+        "analysis_enabled": ANALYSIS_ENABLED,
+        "budget": await _budget_snapshot(),
         "grok_key_configured": bool(XAI_API_KEY),
         "model": GROK_MODEL,
         "transcript_proxy_configured": bool(
@@ -1303,8 +1450,18 @@ async def health():
 @app.get("/api/config")
 async def config():
     """Lets the frontend know whether real analysis is available before it asks."""
+    # Three states, not two. "paused" is a deliberate choice by the operator and
+    # "unconfigured" is an unfinished deploy; the page says something different
+    # for each, and neither may be dressed up as a working analysis.
+    if not ANALYSIS_ENABLED:
+        status = "paused"
+    elif not XAI_API_KEY:
+        status = "unconfigured"
+    else:
+        status = "live"
     return {
-        "live": bool(XAI_API_KEY),
+        "live": status == "live",
+        "status": status,
         "model": GROK_MODEL,
         "trusted_sources": TRUSTED_SOURCES,
         "rate_limit": {"requests": RATE_LIMIT_REQUESTS, "window_seconds": RATE_LIMIT_WINDOW},
@@ -1313,6 +1470,18 @@ async def config():
 
 @app.post("/api/analyze", response_model=AnalyzeResponse)
 async def analyze(req: AnalyzeRequest, request: Request):
+    # Checked before rate limiting and before any transcript fetch: while
+    # analysis is off there is nothing to meter, and a paused service should not
+    # burn a visitor's quota or a proxy's bandwidth telling them so.
+    if not ANALYSIS_ENABLED:
+        raise AnalysisDisabledError(
+            status_code=503,
+            detail=(
+                "AI analysis is switched off right now, so Claimifi.biz cannot "
+                "check this video. Nothing has been analysed."
+            ),
+        )
+
     url = (req.url or "").strip()
     title = (req.title or "").strip()
     if not url and not title:
