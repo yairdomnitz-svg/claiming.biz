@@ -37,6 +37,7 @@ import requests
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 
@@ -124,6 +125,13 @@ GLOBAL_RATE_LIMIT_REQUESTS = _env_int("GLOBAL_RATE_LIMIT_REQUESTS", 300)
 GLOBAL_RATE_LIMIT_WINDOW = _env_int("GLOBAL_RATE_LIMIT_WINDOW", 3600)
 # Hard ceiling on distinct rate-limit buckets held in memory.
 MAX_RATE_BUCKETS = max(1000, _env_int("MAX_RATE_BUCKETS", 20_000))
+# How many proxies append to X-Forwarded-For before the request reaches us.
+# 1 is Railway alone. Put a CDN in front (Cloudflare's orange cloud is the usual
+# one) and it becomes 2: Railway appends the CDN's edge address, and the real
+# visitor is the hop the CDN itself appended, one further left. Getting this
+# wrong in the *low* direction is the dangerous one - every visitor collapses
+# into a single bucket and the per-IP limit locks out the whole audience at once.
+TRUSTED_PROXY_HOPS = max(1, _env_int("TRUSTED_PROXY_HOPS", 1))
 
 # Comma-separated list of origins. Defaults to the canonical site rather than
 # "*": /api/analyze is unauthenticated and spends real money per call, and a
@@ -251,6 +259,62 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# The pages and the stylesheet are ~23 KB each and were going out uncompressed.
+# Added after CORS so it sits *outside* it: Starlette prepends each middleware,
+# so the last one added runs first.
+app.add_middleware(GZipMiddleware, minimum_size=500)
+
+
+# script-src stays free of 'unsafe-inline': neither page has an executable
+# inline script or an inline event handler, so the analyzer's innerHTML
+# rendering cannot be turned into script execution even if esc() were bypassed.
+# style-src cannot - both pages and the rendered claims carry style="..."
+# attributes, which 'unsafe-inline' is what permits.
+CSP = "; ".join(
+    (
+        "default-src 'self'",
+        "base-uri 'self'",
+        "form-action 'self'",
+        "frame-ancestors 'none'",
+        "object-src 'none'",
+        "script-src 'self'",
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+        "font-src 'self' https://fonts.gstatic.com",
+        "img-src 'self' data:",
+        "connect-src 'self'",
+    )
+)
+
+SECURITY_HEADERS = {
+    "Content-Security-Policy": CSP,
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "X-Frame-Options": "DENY",
+    "Cross-Origin-Opener-Policy": "same-origin",
+    "Permissions-Policy": "geolocation=(), microphone=(), camera=(), payment=()",
+}
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    """Attach the headers that make the analyzer's innerHTML rendering safe.
+
+    esc() in app.js is the barrier that stops model output from becoming markup;
+    this is the second one, so a gap there is not immediately exploitable. Added
+    last, so it wraps every other middleware and error responses get them too.
+    """
+    response = await call_next(request)
+    for header, value in SECURITY_HEADERS.items():
+        response.headers.setdefault(header, value)
+    # HSTS only where it means anything. Browsers ignore it over plain HTTP, but
+    # sending it from a local dev server is still a claim this app cannot honour.
+    forwarded_proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip()
+    if (forwarded_proto or request.url.scheme) == "https":
+        response.headers.setdefault(
+            "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
+        )
+    return response
+
 
 # ---------------------------------------------------------------------------
 # Models
@@ -302,19 +366,28 @@ _rate_lock = asyncio.Lock()
 
 
 def _client_ip(request: Request) -> str:
-    """Resolve the caller's address from behind Railway's edge proxy.
+    """Resolve the caller's address from behind the deployment's edge proxies.
 
-    X-Forwarded-For reads "client, proxy1, proxy2", and Railway *appends* the
-    address it actually accepted the connection from. Everything to the left of
-    that is supplied by the caller and is therefore forgeable, so the rightmost
-    entry is the only trustworthy one. Reading the leftmost value let a caller
-    rotate the header and bypass the rate limit completely.
+    X-Forwarded-For reads "client, proxy1, proxy2", and each proxy *appends* the
+    address it accepted the connection from. Everything to the left of what our
+    own trusted infrastructure wrote is supplied by the caller and is therefore
+    forgeable, so counting from the right is the only safe direction. Reading
+    the leftmost value let a caller rotate the header and bypass the rate limit
+    completely.
+
+    TRUSTED_PROXY_HOPS says how many of those appends are ours. With Railway
+    alone (1) the client is the rightmost entry. With a CDN in front (2) the
+    rightmost entry is the CDN's edge address - shared by every visitor - and
+    the client is one hop further left. A header shorter than the configured
+    depth falls back to its leftmost entry: that is the closest to the client
+    the header can offer, and treating a truncated header as trustworthy at
+    full depth would hand out one bucket per forged hop.
     """
     forwarded = request.headers.get("x-forwarded-for", "")
     if forwarded:
         hops = [h.strip() for h in forwarded.split(",") if h.strip()]
         if hops:
-            return hops[-1]
+            return hops[-TRUSTED_PROXY_HOPS] if len(hops) >= TRUSTED_PROXY_HOPS else hops[0]
     return request.client.host if request.client else "unknown"
 
 

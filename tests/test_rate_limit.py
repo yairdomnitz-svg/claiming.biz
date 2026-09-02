@@ -286,3 +286,83 @@ def test_expired_buckets_are_collected_by_the_sweep(client, monkeypatch, analysi
     now[0] += 120  # every one of them is now older than the window
     module._sweep_buckets(now[0])
     assert module._rate_buckets == {}
+
+
+# --- Proxy depth -----------------------------------------------------------
+# TRUSTED_PROXY_HOPS says how many appends to X-Forwarded-For are made by our
+# own infrastructure. Set too low behind a CDN, the rightmost hop is the CDN's
+# shared edge address and every visitor lands in one bucket.
+
+
+def test_cdn_in_front_keeps_visitors_in_separate_buckets(client, monkeypatch, analysis):
+    """With a CDN appending a hop, depth 2 must still see distinct visitors."""
+    module, c = client(
+        XAI_API_KEY="k", RATE_LIMIT_REQUESTS=1, RATE_LIMIT_WINDOW=600, TRUSTED_PROXY_HOPS=2
+    )
+    _stub_grok(module, monkeypatch, analysis)
+
+    # "<client>, <cdn edge>" — Railway appends the CDN's address on the right.
+    def hop(visitor):
+        return {"x-forwarded-for": f"{visitor}, 198.51.100.9"}
+
+    assert c.post("/api/analyze", json=TITLE, headers=hop("1.2.3.4")).status_code == 200
+    assert c.post("/api/analyze", json=TITLE, headers=hop("1.2.3.5")).status_code == 200
+    assert c.post("/api/analyze", json=TITLE, headers=hop("1.2.3.4")).status_code == 429
+
+
+def test_wrong_depth_behind_a_cdn_collapses_every_visitor(client, monkeypatch, analysis):
+    """The failure this setting exists to prevent, pinned so it stays visible."""
+    module, c = client(
+        XAI_API_KEY="k", RATE_LIMIT_REQUESTS=1, RATE_LIMIT_WINDOW=600, TRUSTED_PROXY_HOPS=1
+    )
+    _stub_grok(module, monkeypatch, analysis)
+
+    def hop(visitor):
+        return {"x-forwarded-for": f"{visitor}, 198.51.100.9"}
+
+    assert c.post("/api/analyze", json=TITLE, headers=hop("1.2.3.4")).status_code == 200
+    # A different person entirely, locked out by the first one's request.
+    assert c.post("/api/analyze", json=TITLE, headers=hop("1.2.3.5")).status_code == 429
+
+
+def test_forged_hops_cannot_mint_quotas_at_depth_2(client, monkeypatch, analysis):
+    """Everything left of our own hops is caller-supplied. Rotating it must not help."""
+    module, c = client(
+        XAI_API_KEY="k", RATE_LIMIT_REQUESTS=2, RATE_LIMIT_WINDOW=600, TRUSTED_PROXY_HOPS=2
+    )
+    _stub_grok(module, monkeypatch, analysis)
+
+    codes = [
+        c.post(
+            "/api/analyze",
+            json=TITLE,
+            headers={"x-forwarded-for": f"9.9.9.{i}, 1.2.3.4, 198.51.100.9"},
+        ).status_code
+        for i in range(4)
+    ]
+    assert codes == [200, 200, 429, 429]
+
+
+def test_header_shorter_than_configured_depth_falls_back_to_leftmost(client, monkeypatch, analysis):
+    """A truncated header must not read as 'no hops' and share one bucket.
+
+    Trusting it at full depth would index past the end; treating it as unparsed
+    would put every such caller together. The leftmost entry is the closest to
+    the client the header can offer.
+    """
+    module, c = client(
+        XAI_API_KEY="k", RATE_LIMIT_REQUESTS=1, RATE_LIMIT_WINDOW=600, TRUSTED_PROXY_HOPS=3
+    )
+    _stub_grok(module, monkeypatch, analysis)
+
+    assert c.post("/api/analyze", json=TITLE, headers={"x-forwarded-for": "1.2.3.4"}).status_code == 200
+    assert c.post("/api/analyze", json=TITLE, headers={"x-forwarded-for": "1.2.3.5"}).status_code == 200
+    assert c.post("/api/analyze", json=TITLE, headers={"x-forwarded-for": "1.2.3.4"}).status_code == 429
+
+
+def test_depth_is_clamped_to_at_least_one(client):
+    """0 or a negative would index from the wrong end of the list entirely."""
+    module, _ = client(TRUSTED_PROXY_HOPS=0)
+    assert module.TRUSTED_PROXY_HOPS == 1
+    module, _ = client(TRUSTED_PROXY_HOPS=-5)
+    assert module.TRUSTED_PROXY_HOPS == 1

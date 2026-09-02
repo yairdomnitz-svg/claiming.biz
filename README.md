@@ -46,6 +46,7 @@ No Dockerfile and no `railway.toml` are needed (Config-as-Code is deprecated).
 | `GLOBAL_RATE_LIMIT_REQUESTS` | No | Analyses per window across *all* callers, so many IPs cannot together bypass the per-IP limit. Default `300`. `0` disables. |
 | `GLOBAL_RATE_LIMIT_WINDOW` | No | Window for the global limit, in seconds. Default `3600`. |
 | `MAX_RATE_BUCKETS` | No | Hard cap on rate-limit buckets held in memory. Default `20000`. |
+| `TRUSTED_PROXY_HOPS` | No | How many proxies append to `X-Forwarded-For` before the request arrives. Default `1` (Railway alone). Set to `2` if you put a CDN such as Cloudflare in front — otherwise Railway's rightmost hop is the *CDN's* address, every visitor shares one rate-limit bucket, and the per-IP limit locks out the whole audience at once. |
 | `GROK_TIMEOUT` | No | Seconds to wait on xAI. Default `120`. |
 | `GROK_MAX_TOKENS` | No | Output budget per analysis. Default `8000`. A reply cut off here returns 502 rather than being reported as malformed. |
 | `GROK_TEMPERATURE` | No | Default `0.2`. |
@@ -68,9 +69,11 @@ Do **not** set `PORT` yourself — Railway injects it and must match the domain'
   uvicorn main:app --host 0.0.0.0 --port $PORT --proxy-headers --forwarded-allow-ips="*" --timeout-keep-alive 120
   ```
   `--timeout-keep-alive 120` keeps long analyses from being cut off. Rate limiting
-  reads the rightmost `X-Forwarded-For` hop — the address Railway itself observed —
-  because anything further left is supplied by the caller and can be forged. IPv6
-  addresses are bucketed by `/64`, since a residential customer holds the whole block.
+  counts `X-Forwarded-For` hops from the right — anything further left is supplied by
+  the caller and can be forged — and takes the `TRUSTED_PROXY_HOPS`-th one. The default
+  of `1` is the address Railway itself observed. **Raise it to `2` before enabling
+  Cloudflare's proxy** (or any other CDN) in front of the deploy. IPv6 addresses are
+  bucketed by `/64`, since a residential customer holds the whole block.
 - **Healthcheck Path:** `/health`
 - **Serverless:** leave disabled. An analysis can run for a minute or more; cold starts on
   top of that push requests past the client timeout.

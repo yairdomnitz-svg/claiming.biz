@@ -290,3 +290,63 @@ def test_trusted_source_count_matches_every_place_it_is_claimed(fresh_main):
         text = (REPO / page).read_text(encoding="utf-8")
         for claimed in re.findall(r"(\d+)\s+(?:vetted|trusted)\s+(?:sources|domains)", text):
             assert int(claimed) == count, f"{page} claims {claimed} sources, code has {count}"
+
+
+# --- Security headers and compression --------------------------------------
+
+
+def test_security_headers_on_every_kind_of_response(client):
+    """Pages, static assets, JSON and errors all get them.
+
+    The middleware wraps everything else, so an error raised deep inside a route
+    must still come back hardened.
+    """
+    _, c = client()
+    for path in ("/", "/app", "/styles.css", "/health", "/api/config", "/nope"):
+        headers = c.get(path).headers
+        assert headers["x-content-type-options"] == "nosniff", path
+        assert headers["x-frame-options"] == "DENY", path
+        assert headers["referrer-policy"] == "strict-origin-when-cross-origin", path
+        assert "content-security-policy" in headers, path
+
+
+def test_csp_allows_what_the_pages_actually_load(client):
+    """Google Fonts and inline style attributes are both real dependencies."""
+    _, c = client()
+    csp = c.get("/").headers["content-security-policy"]
+    assert "https://fonts.googleapis.com" in csp
+    assert "https://fonts.gstatic.com" in csp
+    assert "'unsafe-inline'" in csp.split("style-src")[1].split(";")[0]
+
+
+def test_csp_does_not_allow_inline_script(client):
+    """The analyzer renders model output through innerHTML. If esc() ever slips,
+    this is the header that stops the result from executing."""
+    _, c = client()
+    csp = c.get("/").headers["content-security-policy"]
+    script_src = csp.split("script-src")[1].split(";")[0]
+    assert "'unsafe-inline'" not in script_src
+    assert "'unsafe-eval'" not in script_src
+
+
+def test_hsts_only_when_the_request_arrived_over_https(client):
+    """Claiming HTTPS from a plain-HTTP dev server is a promise this cannot keep."""
+    _, c = client()
+    assert "strict-transport-security" not in c.get("/health").headers
+    forwarded = c.get("/health", headers={"x-forwarded-proto": "https"})
+    assert "max-age=" in forwarded.headers["strict-transport-security"]
+
+
+def test_pages_are_compressed_for_clients_that_ask(client):
+    """index.html is ~23 KB and was going out raw on every visit."""
+    _, c = client()
+    resp = c.get("/", headers={"accept-encoding": "gzip"})
+    assert resp.headers.get("content-encoding") == "gzip"
+    # TestClient decodes transparently, so the page itself is still intact.
+    assert "Claimifi" in resp.text
+
+
+def test_compression_is_skipped_when_not_accepted(client):
+    _, c = client()
+    resp = c.get("/", headers={"accept-encoding": "identity"})
+    assert "content-encoding" not in resp.headers
